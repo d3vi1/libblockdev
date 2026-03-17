@@ -1250,13 +1250,49 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
  */
 BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **error);
 
-/** bd_zfs_zvol_create: @name: (not nullable): name of the zvol to create (e.g. "pool/zvol") @size: size of the zvol in bytes @sparse: whether to create a sparse (thin provisioned) zvol @extra: (nullable) (array zero-terminated=1): extra options for zvol creation @error: (out) (optional): place to store error (if any) Returns: whether the zvol was successfully created or not Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_CREATE */
+/**
+ * bd_zfs_zvol_create:
+ * @name: (not nullable): name of the zvol to create (e.g. "pool/zvol")
+ * @size: size of the zvol in bytes
+ * @sparse: whether to create a sparse (thin provisioned) zvol
+ * @extra: (nullable) (array zero-terminated=1): extra options for zvol creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS zvol (block volume).
+ *
+ * Returns: whether the zvol was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_CREATE
+ */
 gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, const BDExtraArg **extra, GError **error);
 
-/** bd_zfs_zvol_destroy: @name: (not nullable): name of the zvol to destroy @recursive: whether to recursively destroy all dependents @force: whether to force the destruction @error: (out) (optional): place to store error (if any) Returns: whether the zvol was successfully destroyed or not Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_DELETE */
+/**
+ * bd_zfs_zvol_destroy:
+ * @name: (not nullable): name of the zvol to destroy
+ * @recursive: whether to recursively destroy all dependents
+ * @force: whether to force the destruction
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys a ZFS zvol (block volume).
+ *
+ * Returns: whether the zvol was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_DELETE
+ */
 gboolean bd_zfs_zvol_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error);
 
-/** bd_zfs_zvol_resize: @name: (not nullable): name of the zvol to resize @new_size: new size for the zvol in bytes @error: (out) (optional): place to store error (if any) Returns: whether the zvol was successfully resized or not Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_MODIFY */
+/**
+ * bd_zfs_zvol_resize:
+ * @name: (not nullable): name of the zvol to resize
+ * @new_size: new size for the zvol in bytes
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Resizes a ZFS zvol (block volume).
+ *
+ * Returns: whether the zvol was successfully resized or not
+ *
+ * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
 gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error);
 
 #endif /* BD_ZFS_API */
