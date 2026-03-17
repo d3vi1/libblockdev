@@ -937,4 +937,149 @@ gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, con
  */
 BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **error);
 
+/**
+ * bd_zfs_dataset_create:
+ * @name: name of the dataset to create (e.g. "pool/dataset")
+ * @extra: (nullable) (array zero-terminated=1): extra options for dataset creation (e.g. -o property=value)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS dataset with the given name.
+ *
+ * Returns: whether the dataset was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_dataset_destroy:
+ * @name: name of the dataset to destroy
+ * @recursive: whether to recursively destroy all children
+ * @force: whether to force the destruction of dependents
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys the ZFS dataset with the given name.
+ *
+ * Returns: whether the dataset was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_dataset_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error);
+
+/**
+ * bd_zfs_dataset_list:
+ * @pool_or_parent: (nullable): pool or parent dataset to list datasets for, or %NULL for all
+ * @recursive: whether to list datasets recursively
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS datasets under the given pool or parent dataset.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSDatasetInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean recursive, GError **error);
+
+/**
+ * bd_zfs_dataset_get_info:
+ * @name: name of the dataset to get info for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets information about a single ZFS dataset.
+ *
+ * Returns: (transfer full): a #BDZFSDatasetInfo for the given dataset or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSDatasetInfo* bd_zfs_dataset_get_info (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_dataset_rename:
+ * @name: current name of the dataset
+ * @new_name: new name for the dataset
+ * @create_parent: whether to create parent datasets if they do not exist
+ * @force: whether to force unmount any filesystems that need to be unmounted
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Renames a ZFS dataset.
+ *
+ * Returns: whether the dataset was successfully renamed or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_rename (const gchar *name, const gchar *new_name, gboolean create_parent, gboolean force, GError **error);
+
+/**
+ * bd_zfs_dataset_mount:
+ * @name: name of the dataset to mount
+ * @mountpoint: (nullable): mountpoint to use or %NULL to use the dataset's mountpoint property
+ * @extra: (nullable) (array zero-terminated=1): extra mount options
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Mounts a ZFS dataset. If @mountpoint is specified, it will be used as the mountpoint override.
+ *
+ * Returns: whether the dataset was successfully mounted or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_dataset_unmount:
+ * @name: name of the dataset to unmount
+ * @force: whether to force the unmount
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Unmounts a ZFS dataset.
+ *
+ * Returns: whether the dataset was successfully unmounted or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_unmount (const gchar *name, gboolean force, GError **error);
+
+/**
+ * bd_zfs_dataset_get_property:
+ * @name: name of the dataset
+ * @property: name of the property to get
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets a single property from a ZFS dataset.
+ *
+ * Returns: (transfer full): a #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo* bd_zfs_dataset_get_property (const gchar *name, const gchar *property, GError **error);
+
+/**
+ * bd_zfs_dataset_set_property:
+ * @name: name of the dataset
+ * @property: name of the property to set
+ * @value: value to set the property to
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Sets a property on a ZFS dataset.
+ *
+ * Returns: whether the property was successfully set or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
+
+/**
+ * bd_zfs_dataset_get_properties:
+ * @name: name of the dataset
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets all properties from a ZFS dataset.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo** bd_zfs_dataset_get_properties (const gchar *name, GError **error);
+
 #endif /* BD_ZFS_API */

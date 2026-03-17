@@ -1626,3 +1626,493 @@ BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **erro
     g_ptr_array_add (props, NULL);
     return (BDZFSPropertyInfo **) g_ptr_array_free (props, FALSE);
 }
+
+/**
+ * parse_dataset_info_line:
+ *
+ * Parses a single tab-separated line from `zfs list -H -p` output into
+ * a BDZFSDatasetInfo struct.
+ *
+ * Fields expected (in order):
+ *   name, type, mountpoint, origin, used, avail, refer, compress, encryption, keystatus, mounted
+ *
+ * Returns: (transfer full): a new BDZFSDatasetInfo or %NULL on parse error
+ */
+static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line) {
+    gchar **fields = NULL;
+    BDZFSDatasetInfo *info = NULL;
+    guint num_fields;
+
+    if (!line || strlen (line) == 0)
+        return NULL;
+
+    fields = g_strsplit (line, "\t", -1);
+    num_fields = g_strv_length (fields);
+
+    if (num_fields < 11) {
+        g_strfreev (fields);
+        return NULL;
+    }
+
+    info = g_new0 (BDZFSDatasetInfo, 1);
+
+    /* [0] name */
+    info->name = g_strdup (fields[0]);
+
+    /* [1] type */
+    if (g_strcmp0 (fields[1], "filesystem") == 0)
+        info->type = BD_ZFS_DATASET_TYPE_FILESYSTEM;
+    else if (g_strcmp0 (fields[1], "volume") == 0)
+        info->type = BD_ZFS_DATASET_TYPE_VOLUME;
+    else if (g_strcmp0 (fields[1], "snapshot") == 0)
+        info->type = BD_ZFS_DATASET_TYPE_SNAPSHOT;
+    else if (g_strcmp0 (fields[1], "bookmark") == 0)
+        info->type = BD_ZFS_DATASET_TYPE_BOOKMARK;
+    else
+        info->type = BD_ZFS_DATASET_TYPE_FILESYSTEM;
+
+    /* [2] mountpoint ("-" means none -> NULL) */
+    if (g_strcmp0 (fields[2], "-") == 0 || g_strcmp0 (fields[2], "none") == 0)
+        info->mountpoint = NULL;
+    else
+        info->mountpoint = g_strdup (fields[2]);
+
+    /* [3] origin ("-" means none -> NULL) */
+    if (g_strcmp0 (fields[3], "-") == 0)
+        info->origin = NULL;
+    else
+        info->origin = g_strdup (fields[3]);
+
+    /* [4] used (guint64) */
+    info->used = g_ascii_strtoull (fields[4], NULL, 10);
+
+    /* [5] available (guint64) */
+    info->available = g_ascii_strtoull (fields[5], NULL, 10);
+
+    /* [6] referenced (guint64) */
+    info->referenced = g_ascii_strtoull (fields[6], NULL, 10);
+
+    /* [7] compression */
+    info->compression = g_strdup (fields[7]);
+
+    /* [8] encryption */
+    info->encryption = g_strdup (fields[8]);
+
+    /* [9] keystatus */
+    if (g_strcmp0 (fields[9], "available") == 0)
+        info->key_status = BD_ZFS_KEY_STATUS_AVAILABLE;
+    else if (g_strcmp0 (fields[9], "unavailable") == 0)
+        info->key_status = BD_ZFS_KEY_STATUS_UNAVAILABLE;
+    else
+        info->key_status = BD_ZFS_KEY_STATUS_NONE;
+
+    /* [10] mounted ("yes"/"no"/"-") */
+    info->mounted = (g_strcmp0 (fields[10], "yes") == 0);
+
+    g_strfreev (fields);
+    return info;
+}
+
+/**
+ * bd_zfs_dataset_create:
+ * @name: name of the dataset to create (e.g. "pool/dataset")
+ * @extra: (nullable) (array zero-terminated=1): extra options for dataset creation (e.g. -o property=value)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS dataset with the given name.
+ *
+ * Returns: whether the dataset was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GError **error) {
+    const gchar *argv[] = {"zfs", "create", name, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, extra, error);
+}
+
+/**
+ * bd_zfs_dataset_destroy:
+ * @name: name of the dataset to destroy
+ * @recursive: whether to recursively destroy all children
+ * @force: whether to force the destruction of dependents
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys the ZFS dataset with the given name.
+ *
+ * Returns: whether the dataset was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_dataset_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error) {
+    const gchar *argv[6] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "destroy";
+    if (recursive)
+        argv[next_arg++] = "-r";
+    if (force)
+        argv[next_arg++] = "-f";
+    argv[next_arg++] = name;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_dataset_list:
+ * @pool_or_parent: (nullable): pool or parent dataset to list datasets for, or %NULL for all
+ * @recursive: whether to list datasets recursively
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS datasets under the given pool or parent dataset.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSDatasetInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean recursive, GError **error) {
+    const gchar **argv = NULL;
+    guint next_arg = 0;
+    guint num_args;
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    gchar **line_p = NULL;
+    GPtrArray *dataset_infos;
+    BDZFSDatasetInfo *info = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    /* zfs list -H -p -t filesystem,volume [-r] -o <fields> [pool_or_parent] NULL */
+    num_args = 8 + (recursive ? 1 : 0) + (pool_or_parent ? 1 : 0) + 1;
+    argv = g_new0 (const gchar*, num_args);
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "list";
+    argv[next_arg++] = "-H";
+    argv[next_arg++] = "-p";
+    argv[next_arg++] = "-t";
+    argv[next_arg++] = "filesystem,volume";
+    if (recursive)
+        argv[next_arg++] = "-r";
+    argv[next_arg++] = "-o";
+    argv[next_arg++] = "name,type,mountpoint,origin,used,avail,refer,compress,encryption,keystatus,mounted";
+    if (pool_or_parent)
+        argv[next_arg++] = pool_or_parent;
+    argv[next_arg] = NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    g_free (argv);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    dataset_infos = g_ptr_array_new ();
+    for (line_p = lines; *line_p; line_p++) {
+        if (strlen (*line_p) == 0)
+            continue;
+        info = parse_dataset_info_line (*line_p);
+        if (info)
+            g_ptr_array_add (dataset_infos, info);
+    }
+    g_strfreev (lines);
+
+    g_ptr_array_add (dataset_infos, NULL);
+    return (BDZFSDatasetInfo **) g_ptr_array_free (dataset_infos, FALSE);
+}
+
+/**
+ * bd_zfs_dataset_get_info:
+ * @name: name of the dataset to get info for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets information about a single ZFS dataset.
+ *
+ * Returns: (transfer full): a #BDZFSDatasetInfo for the given dataset or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSDatasetInfo* bd_zfs_dataset_get_info (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zfs", "list", "-H", "-p", "-t", "all", "-o",
+                           "name,type,mountpoint,origin,used,avail,refer,compress,encryption,keystatus,mounted",
+                           name, NULL};
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    BDZFSDatasetInfo *info = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    /* Take the first non-empty line */
+    for (gchar **line_p = lines; *line_p; line_p++) {
+        if (strlen (*line_p) == 0)
+            continue;
+        info = parse_dataset_info_line (*line_p);
+        break;
+    }
+    g_strfreev (lines);
+
+    if (!info) {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
+                     "Failed to parse dataset info for '%s'", name);
+        return NULL;
+    }
+
+    return info;
+}
+
+/**
+ * bd_zfs_dataset_rename:
+ * @name: current name of the dataset
+ * @new_name: new name for the dataset
+ * @create_parent: whether to create parent datasets if they do not exist
+ * @force: whether to force unmount any filesystems that need to be unmounted
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Renames a ZFS dataset.
+ *
+ * Returns: whether the dataset was successfully renamed or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_rename (const gchar *name, const gchar *new_name, gboolean create_parent,
+                                 gboolean force, GError **error) {
+    const gchar *argv[7] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "rename";
+    if (create_parent)
+        argv[next_arg++] = "-p";
+    if (force)
+        argv[next_arg++] = "-f";
+    argv[next_arg++] = name;
+    argv[next_arg++] = new_name;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_dataset_mount:
+ * @name: name of the dataset to mount
+ * @mountpoint: (nullable): mountpoint to use or %NULL to use the dataset's mountpoint property
+ * @extra: (nullable) (array zero-terminated=1): extra mount options
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Mounts a ZFS dataset. If @mountpoint is specified, it will be used as the
+ * mountpoint override via ``-o mountpoint=``.
+ *
+ * Returns: whether the dataset was successfully mounted or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const BDExtraArg **extra, GError **error) {
+    gchar *mp_opt = NULL;
+    const gchar *argv[6] = {NULL};
+    guint next_arg = 0;
+    gboolean success;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "mount";
+    if (mountpoint) {
+        mp_opt = g_strdup_printf ("mountpoint=%s", mountpoint);
+        argv[next_arg++] = "-o";
+        argv[next_arg++] = mp_opt;
+    }
+    argv[next_arg++] = name;
+    argv[next_arg] = NULL;
+
+    success = bd_utils_exec_and_report_error (argv, extra, error);
+    g_free (mp_opt);
+    return success;
+}
+
+/**
+ * bd_zfs_dataset_unmount:
+ * @name: name of the dataset to unmount
+ * @force: whether to force the unmount
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Unmounts a ZFS dataset.
+ *
+ * Returns: whether the dataset was successfully unmounted or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_unmount (const gchar *name, gboolean force, GError **error) {
+    const gchar *argv[5] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "unmount";
+    if (force)
+        argv[next_arg++] = "-f";
+    argv[next_arg++] = name;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_dataset_get_property:
+ * @name: name of the dataset
+ * @property: name of the property to get
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets a single property from a ZFS dataset.
+ *
+ * Returns: (transfer full): a #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo* bd_zfs_dataset_get_property (const gchar *name, const gchar *property, GError **error) {
+    const gchar *argv[] = {"zfs", "get", "-H", "-p", property, name, NULL};
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    BDZFSPropertyInfo *info = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    /* Take the first non-empty line */
+    for (gchar **line_p = lines; *line_p; line_p++) {
+        if (strlen (*line_p) == 0)
+            continue;
+        info = parse_property_line (*line_p);
+        break;
+    }
+    g_strfreev (lines);
+
+    if (!info) {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
+                     "Failed to parse property '%s' for dataset '%s'", property, name);
+        return NULL;
+    }
+
+    return info;
+}
+
+/**
+ * bd_zfs_dataset_set_property:
+ * @name: name of the dataset
+ * @property: name of the property to set
+ * @value: value to set the property to
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Sets a property on a ZFS dataset.
+ *
+ * Returns: whether the property was successfully set or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error) {
+    gchar *prop_val = NULL;
+    const gchar *argv[5] = {NULL};
+    gboolean success;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    prop_val = g_strdup_printf ("%s=%s", property, value);
+
+    argv[0] = "zfs";
+    argv[1] = "set";
+    argv[2] = prop_val;
+    argv[3] = name;
+    argv[4] = NULL;
+
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
+    g_free (prop_val);
+    return success;
+}
+
+/**
+ * bd_zfs_dataset_get_properties:
+ * @name: name of the dataset
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets all properties from a ZFS dataset.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo** bd_zfs_dataset_get_properties (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zfs", "get", "-H", "-p", "all", name, NULL};
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    gchar **line_p = NULL;
+    GPtrArray *props;
+    BDZFSPropertyInfo *info = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    props = g_ptr_array_new ();
+    for (line_p = lines; *line_p; line_p++) {
+        if (strlen (*line_p) == 0)
+            continue;
+        info = parse_property_line (*line_p);
+        if (info)
+            g_ptr_array_add (props, info);
+    }
+    g_strfreev (lines);
+
+    g_ptr_array_add (props, NULL);
+    return (BDZFSPropertyInfo **) g_ptr_array_free (props, FALSE);
+}
