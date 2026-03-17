@@ -2610,3 +2610,112 @@ BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **erro
     g_free (output);
     return ret;
 }
+
+/**
+ * bd_zfs_zvol_create:
+ * @name: name of the zvol to create (e.g. "pool/zvol")
+ * @size: size of the zvol in bytes
+ * @sparse: whether to create a sparse (thin provisioned) zvol
+ * @extra: (nullable) (array zero-terminated=1): extra options for zvol creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS zvol (block volume) with the given name and size.
+ *
+ * Returns: whether the zvol was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, const BDExtraArg **extra, GError **error) {
+    const gchar **argv = NULL;
+    guint num_args = 0;
+    guint next_arg = 0;
+    gchar *size_str = NULL;
+    gboolean success = FALSE;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    /* zfs create -V <size> [-s] <name> NULL */
+    num_args = 5 + (sparse ? 1 : 0) + 1;
+    argv = g_new0 (const gchar*, num_args);
+
+    size_str = g_strdup_printf ("%" G_GUINT64_FORMAT, size);
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "create";
+    argv[next_arg++] = "-V";
+    argv[next_arg++] = size_str;
+    if (sparse)
+        argv[next_arg++] = "-s";
+    argv[next_arg++] = name;
+
+    success = bd_utils_exec_and_report_error (argv, extra, error);
+    g_free (size_str);
+    g_free (argv);
+    return success;
+}
+
+/**
+ * bd_zfs_zvol_destroy:
+ * @name: name of the zvol to destroy
+ * @recursive: whether to recursively destroy all dependents
+ * @force: whether to force the destruction
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys the ZFS zvol with the given name.
+ *
+ * Returns: whether the zvol was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_zvol_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error) {
+    const gchar *argv[6] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "destroy";
+    if (recursive)
+        argv[next_arg++] = "-r";
+    if (force)
+        argv[next_arg++] = "-f";
+    argv[next_arg++] = name;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_zvol_resize:
+ * @name: name of the zvol to resize
+ * @new_size: new size for the zvol in bytes
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Resizes a ZFS zvol to the given size.
+ *
+ * Returns: whether the zvol was successfully resized or not
+ *
+ * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error) {
+    gchar *volsize_str = NULL;
+    const gchar *argv[5] = {NULL};
+    gboolean success;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    volsize_str = g_strdup_printf ("volsize=%" G_GUINT64_FORMAT, new_size);
+
+    argv[0] = "zfs";
+    argv[1] = "set";
+    argv[2] = volsize_str;
+    argv[3] = name;
+    argv[4] = NULL;
+
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
+    g_free (volsize_str);
+    return success;
+}
