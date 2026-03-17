@@ -190,4 +190,15 @@ void bd_zfs_close (void);
 
 gboolean bd_zfs_is_tech_avail (BDZFSTech tech, guint64 mode, GError **error);
 
+gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar *raid_level,
+                             const BDExtraArg **extra, GError **error);
+gboolean bd_zfs_pool_destroy (const gchar *name, gboolean force, GError **error);
+gboolean bd_zfs_pool_export (const gchar *name, gboolean force, GError **error);
+gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
+                             const gchar **search_dirs, gboolean force,
+                             const BDExtraArg **extra, GError **error);
+BDZFSPoolInfo** bd_zfs_pool_list (GError **error);
+BDZFSPoolInfo* bd_zfs_pool_get_info (const gchar *name, GError **error);
+BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error);
+
 #endif  /* BD_ZFS */

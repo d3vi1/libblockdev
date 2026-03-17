@@ -909,4 +909,11 @@ BDZFSScrubInfo
 bd_zfs_scrub_info_copy
 bd_zfs_scrub_info_free
 bd_zfs_is_tech_avail
+bd_zfs_pool_create
+bd_zfs_pool_destroy
+bd_zfs_pool_export
+bd_zfs_pool_import
+bd_zfs_pool_list
+bd_zfs_pool_get_info
+bd_zfs_pool_get_vdevs
 </SECTION>
