@@ -923,4 +923,14 @@ bd_zfs_pool_detach
 bd_zfs_pool_replace
 bd_zfs_pool_online
 bd_zfs_pool_offline
+bd_zfs_pool_scrub_start
+bd_zfs_pool_scrub_stop
+bd_zfs_pool_scrub_pause
+bd_zfs_pool_scrub_status
+bd_zfs_pool_trim_start
+bd_zfs_pool_trim_stop
+bd_zfs_pool_clear
+bd_zfs_pool_get_property
+bd_zfs_pool_set_property
+bd_zfs_pool_get_properties
 </SECTION>

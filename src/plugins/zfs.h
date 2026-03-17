@@ -212,4 +212,18 @@ gboolean bd_zfs_pool_replace (const gchar *name, const gchar *old_vdev, const gc
 gboolean bd_zfs_pool_online (const gchar *name, const gchar *vdev, gboolean expand, GError **error);
 gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean temporary, GError **error);
 
+gboolean bd_zfs_pool_scrub_start (const gchar *name, GError **error);
+gboolean bd_zfs_pool_scrub_stop (const gchar *name, GError **error);
+gboolean bd_zfs_pool_scrub_pause (const gchar *name, GError **error);
+BDZFSScrubInfo* bd_zfs_pool_scrub_status (const gchar *name, GError **error);
+
+gboolean bd_zfs_pool_trim_start (const gchar *name, const gchar *vdev, GError **error);
+gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **error);
+
+gboolean bd_zfs_pool_clear (const gchar *name, const gchar *vdev, GError **error);
+
+BDZFSPropertyInfo* bd_zfs_pool_get_property (const gchar *name, const gchar *property, GError **error);
+gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
+BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **error);
+
 #endif  /* BD_ZFS */
