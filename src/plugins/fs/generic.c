@@ -1222,6 +1222,25 @@ static gboolean device_operation (const gchar *device, const gchar *fstype, BDFS
             default:
                 g_assert_not_reached ();
         }
+    } else if (g_strcmp0 (detected_fstype, "zfs") == 0 || g_strcmp0 (detected_fstype, "zfs_member") == 0) {
+        switch (op) {
+            case BD_FS_RESIZE:
+                break;  /* not supported through generic dispatch */
+            case BD_FS_REPAIR:
+                break;  /* not supported through generic dispatch */
+            case BD_FS_CHECK:
+                break;  /* not supported through generic dispatch */
+            case BD_FS_LABEL:
+                break;  /* ZFS has no traditional label; use pool name via top-level plugin */
+            case BD_FS_LABEL_CHECK:
+                return bd_fs_zfs_check_label (label, error);
+            case BD_FS_UUID:
+                break;  /* ZFS GUIDs cannot be changed */
+            case BD_FS_UUID_CHECK:
+                return bd_fs_zfs_check_uuid (uuid, error);
+            default:
+                g_assert_not_reached ();
+        }
     }
     switch (op) {
         case BD_FS_RESIZE:
@@ -1513,6 +1532,13 @@ guint64 bd_fs_get_size (const gchar *device, const gchar *fstype, GError **error
             bd_fs_udf_info_free (info);
         }
         return size;
+    } else if (g_strcmp0 (detected_fstype, "zfs") == 0 || g_strcmp0 (detected_fstype, "zfs_member") == 0) {
+        BDFSZfsInfo *info = bd_fs_zfs_get_info (device, error);
+        if (info) {
+            size = info->size;
+            bd_fs_zfs_info_free (info);
+        }
+        return size;
     } else {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_NOT_SUPPORTED,
                     "Getting size of filesystem '%s' is not supported.", detected_fstype);
@@ -1591,6 +1617,13 @@ guint64 bd_fs_get_free_space (const gchar *device, const gchar *fstype, GError *
         if (info) {
             size = info->free_space;
             bd_fs_btrfs_info_free (info);
+        }
+        return size;
+    } else if (g_strcmp0 (detected_fstype, "zfs") == 0 || g_strcmp0 (detected_fstype, "zfs_member") == 0) {
+        BDFSZfsInfo *info = bd_fs_zfs_get_info (device, error);
+        if (info) {
+            size = info->free_space;
+            bd_fs_zfs_info_free (info);
         }
         return size;
     } else {
