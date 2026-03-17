@@ -414,6 +414,11 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
     gboolean success = FALSE;
     const gchar **vdev_p = NULL;
 
+    if (!name || *name == '\0') {
+        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+        return FALSE;
+    }
+
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
@@ -459,6 +464,11 @@ gboolean bd_zfs_pool_destroy (const gchar *name, gboolean force, GError **error)
     const gchar *argv[5] = {NULL};
     guint next_arg = 0;
 
+    if (!name || *name == '\0') {
+        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+        return FALSE;
+    }
+
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
@@ -487,6 +497,11 @@ gboolean bd_zfs_pool_destroy (const gchar *name, gboolean force, GError **error)
 gboolean bd_zfs_pool_export (const gchar *name, gboolean force, GError **error) {
     const gchar *argv[5] = {NULL};
     guint next_arg = 0;
+
+    if (!name || *name == '\0') {
+        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+        return FALSE;
+    }
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -626,6 +641,11 @@ BDZFSPoolInfo* bd_zfs_pool_get_info (const gchar *name, GError **error) {
     gchar **lines = NULL;
     BDZFSPoolInfo *info = NULL;
 
+    if (!name || *name == '\0') {
+        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+        return NULL;
+    }
+
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
@@ -677,6 +697,11 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
     gboolean in_config = FALSE;
     gboolean header_skipped = FALSE;
 
+    if (!name || *name == '\0') {
+        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+        return NULL;
+    }
+
     /* Stack for building the tree. We track indent level and corresponding vdev info. */
     /* Max depth of 64 should be more than enough for any ZFS pool. */
     BDZFSVdevInfo *stack[64];
@@ -703,46 +728,40 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
     for (line_p = lines; *line_p; line_p++) {
         gchar *line = *line_p;
 
+        /* Skip leading whitespace for section detection */
+        const gchar *s = line;
+        while (*s == ' ' || *s == '\t')
+            s++;
+
         /* Look for the "config:" line to start parsing */
         if (!in_config) {
-            gchar *stripped = g_strstrip (g_strdup (line));
-            if (g_strcmp0 (stripped, "config:") == 0)
+            if (g_str_has_prefix (s, "config:"))
                 in_config = TRUE;
-            g_free (stripped);
             continue;
         }
 
         /* Skip empty lines */
-        if (strlen (line) == 0)
+        if (*s == '\0')
             continue;
 
         /* Skip the header line (NAME STATE READ WRITE CKSUM) */
         if (!header_skipped) {
-            gchar *stripped = g_strstrip (g_strdup (line));
-            if (g_str_has_prefix (stripped, "NAME")) {
-                g_free (stripped);
+            if (g_str_has_prefix (s, "NAME")) {
                 header_skipped = TRUE;
                 continue;
             }
-            g_free (stripped);
-            /* If no header found, skip blank lines */
             continue;
         }
 
         /* Stop parsing at "errors:" line */
-        {
-            gchar *stripped = g_strstrip (g_strdup (line));
-            if (g_str_has_prefix (stripped, "errors:")) {
-                g_free (stripped);
-                break;
-            }
-            g_free (stripped);
-        }
+        if (g_str_has_prefix (s, "errors:"))
+            break;
 
-        /* Count leading tabs to determine indent level */
+        /* Count leading whitespace to determine indent level.
+         * zpool status uses a leading tab then spaces for hierarchy. */
         gint indent = 0;
         const gchar *p = line;
-        while (*p == '\t') {
+        while (*p == '\t' || *p == ' ') {
             indent++;
             p++;
         }
@@ -751,9 +770,17 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
         if (*p == '\0')
             continue;
 
-        /* Parse the fields: name state read write cksum (whitespace-separated) */
-        gchar **fields = g_regex_split_simple ("\\s+", p, 0, 0);
+        /* Split fields on whitespace. Use g_strsplit_set on the trimmed
+         * portion (p already past leading whitespace). First strip any
+         * trailing whitespace too. */
+        gchar *trimmed = g_strstrip (g_strdup (p));
+        gchar **fields = g_regex_split_simple ("\\s+", trimmed, 0, 0);
+        g_free (trimmed);
         guint num_fields = g_strv_length (fields);
+
+        /* g_regex_split_simple may produce trailing empty string */
+        if (num_fields > 0 && fields[num_fields - 1][0] == '\0')
+            num_fields--;
 
         if (num_fields < 5) {
             g_strfreev (fields);
@@ -808,13 +835,28 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
 
         /* Push this vdev onto the stack */
         stack_top++;
-        if (stack_top < 64) {
-            stack[stack_top] = vdev;
-            stack_indent[stack_top] = indent;
+        if (stack_top >= 64) {
+            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
+                         "Vdev tree depth exceeds maximum (64) for pool '%s'", name);
+            bd_zfs_vdev_info_free (vdev);
+            for (guint i = 0; i < top_vdevs->len; i++)
+                bd_zfs_vdev_info_free (g_ptr_array_index (top_vdevs, i));
+            g_ptr_array_free (top_vdevs, TRUE);
+            g_strfreev (lines);
+            return NULL;
         }
+        stack[stack_top] = vdev;
+        stack_indent[stack_top] = indent;
     }
 
     g_strfreev (lines);
+
+    if (top_vdevs->len == 0) {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
+                     "Failed to parse any vdevs from 'zpool status' output for pool '%s'", name);
+        g_ptr_array_free (top_vdevs, TRUE);
+        return NULL;
+    }
 
     g_ptr_array_add (top_vdevs, NULL);
     return (BDZFSVdevInfo **) g_ptr_array_free (top_vdevs, FALSE);
