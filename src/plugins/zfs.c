@@ -2600,14 +2600,13 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
         /* Inherit key from parent */
         const gchar *argv[] = {"zfs", "change-key", "-i", dataset, NULL};
         return bd_utils_exec_and_report_error (argv, extra, error);
-    } else if (g_str_has_prefix (new_key_location, "file://")) {
-        /* File-based key location */
-        const gchar *argv[] = {"zfs", "change-key", "-l", new_key_location, dataset, NULL};
-        return bd_utils_exec_and_report_error (argv, extra, error);
     } else {
-        /* Treat as a raw key location string */
-        const gchar *argv[] = {"zfs", "change-key", "-l", new_key_location, dataset, NULL};
-        return bd_utils_exec_and_report_error (argv, extra, error);
+        /* Set new key location via -o keylocation=<value> */
+        gchar *opt = g_strdup_printf ("keylocation=%s", new_key_location);
+        const gchar *argv[] = {"zfs", "change-key", "-o", opt, dataset, NULL};
+        gboolean ret = bd_utils_exec_and_report_error (argv, extra, error);
+        g_free (opt);
+        return ret;
     }
 }
 
