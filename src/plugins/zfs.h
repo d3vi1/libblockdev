@@ -238,4 +238,16 @@ BDZFSPropertyInfo* bd_zfs_dataset_get_property (const gchar *name, const gchar *
 gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
 BDZFSPropertyInfo** bd_zfs_dataset_get_properties (const gchar *name, GError **error);
 
+gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
+                                  const BDExtraArg **extra, GError **error);
+gboolean bd_zfs_snapshot_destroy (const gchar *name, gboolean recursive, GError **error);
+BDZFSSnapshotInfo** bd_zfs_snapshot_list (const gchar *dataset, gboolean recursive, GError **error);
+gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean destroy_newer, GError **error);
+gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
+                                 const BDExtraArg **extra, GError **error);
+
+gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, GError **error);
+gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error);
+BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error);
+
 #endif  /* BD_ZFS */
