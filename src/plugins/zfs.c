@@ -2116,3 +2116,363 @@ BDZFSPropertyInfo** bd_zfs_dataset_get_properties (const gchar *name, GError **e
     g_ptr_array_add (props, NULL);
     return (BDZFSPropertyInfo **) g_ptr_array_free (props, FALSE);
 }
+
+/**
+ * parse_snapshot_info_line:
+ *
+ * Parses a single tab-separated line from `zfs list -H -p -t snapshot` output
+ * into a BDZFSSnapshotInfo struct.
+ *
+ * Fields expected (in order):
+ *   name, used, refer, creation
+ *
+ * Returns: (transfer full): a new BDZFSSnapshotInfo or %NULL on parse error
+ */
+static BDZFSSnapshotInfo* parse_snapshot_info_line (const gchar *line) {
+    gchar **fields = NULL;
+    BDZFSSnapshotInfo *info = NULL;
+    guint num_fields;
+    const gchar *at_sign = NULL;
+
+    if (!line || strlen (line) == 0)
+        return NULL;
+
+    fields = g_strsplit (line, "\t", -1);
+    num_fields = g_strv_length (fields);
+
+    if (num_fields < 4) {
+        g_strfreev (fields);
+        return NULL;
+    }
+
+    info = g_new0 (BDZFSSnapshotInfo, 1);
+
+    /* [0] full name (e.g. "pool/data@snap1") */
+    info->name = g_strdup (fields[0]);
+
+    /* Extract dataset from name: everything before '@' */
+    at_sign = strchr (fields[0], '@');
+    if (at_sign)
+        info->dataset = g_strndup (fields[0], at_sign - fields[0]);
+    else
+        info->dataset = g_strdup (fields[0]);
+
+    /* [1] used (guint64) */
+    info->used = g_ascii_strtoull (fields[1], NULL, 10);
+
+    /* [2] referenced (guint64) */
+    info->referenced = g_ascii_strtoull (fields[2], NULL, 10);
+
+    /* [3] creation (string) */
+    info->creation = g_strdup (fields[3]);
+
+    g_strfreev (fields);
+    return info;
+}
+
+/**
+ * bd_zfs_snapshot_create:
+ * @name: full snapshot name (dataset@snapname)
+ * @recursive: whether to recursively snapshot all descendant datasets
+ * @extra: (nullable) (array zero-terminated=1): extra options for snapshot creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS snapshot.
+ *
+ * Returns: whether the snapshot was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
+                                  const BDExtraArg **extra, GError **error) {
+    const gchar *argv[5] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "snapshot";
+    if (recursive)
+        argv[next_arg++] = "-r";
+    argv[next_arg++] = name;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, extra, error);
+}
+
+/**
+ * bd_zfs_snapshot_destroy:
+ * @name: full snapshot name (dataset@snapname)
+ * @recursive: whether to recursively destroy all dependent snapshots
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys a ZFS snapshot.
+ *
+ * Returns: whether the snapshot was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_snapshot_destroy (const gchar *name, gboolean recursive, GError **error) {
+    const gchar *argv[5] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "destroy";
+    if (recursive)
+        argv[next_arg++] = "-r";
+    argv[next_arg++] = name;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_snapshot_list:
+ * @dataset: (nullable): dataset to list snapshots for, or %NULL for all
+ * @recursive: whether to list snapshots recursively
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS snapshots for the given dataset or all snapshots.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSSnapshotInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSSnapshotInfo** bd_zfs_snapshot_list (const gchar *dataset, gboolean recursive, GError **error) {
+    const gchar **argv = NULL;
+    guint next_arg = 0;
+    guint num_args;
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    gchar **line_p = NULL;
+    GPtrArray *snap_infos;
+    BDZFSSnapshotInfo *info = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    /* zfs list -H -p -t snapshot [-r] -o name,used,refer,creation [dataset] NULL */
+    num_args = 8 + (recursive ? 1 : 0) + (dataset ? 1 : 0) + 1;
+    argv = g_new0 (const gchar*, num_args);
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "list";
+    argv[next_arg++] = "-H";
+    argv[next_arg++] = "-p";
+    argv[next_arg++] = "-t";
+    argv[next_arg++] = "snapshot";
+    if (recursive)
+        argv[next_arg++] = "-r";
+    argv[next_arg++] = "-o";
+    argv[next_arg++] = "name,used,refer,creation";
+    if (dataset)
+        argv[next_arg++] = dataset;
+    argv[next_arg] = NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    g_free (argv);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    snap_infos = g_ptr_array_new ();
+    for (line_p = lines; *line_p; line_p++) {
+        if (strlen (*line_p) == 0)
+            continue;
+        info = parse_snapshot_info_line (*line_p);
+        if (info)
+            g_ptr_array_add (snap_infos, info);
+    }
+    g_strfreev (lines);
+
+    g_ptr_array_add (snap_infos, NULL);
+    return (BDZFSSnapshotInfo **) g_ptr_array_free (snap_infos, FALSE);
+}
+
+/**
+ * bd_zfs_snapshot_rollback:
+ * @name: full snapshot name (dataset@snapname)
+ * @force: whether to force unmount of any clones
+ * @destroy_newer: whether to destroy any snapshots more recent than the given one
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Rolls back a ZFS dataset to the given snapshot.
+ *
+ * Returns: whether the rollback was successful or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean destroy_newer, GError **error) {
+    const gchar *argv[6] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "rollback";
+    if (force)
+        argv[next_arg++] = "-f";
+    if (destroy_newer)
+        argv[next_arg++] = "-r";
+    argv[next_arg++] = name;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_snapshot_clone:
+ * @snapshot: full snapshot name (dataset@snapname) to clone from
+ * @clone_name: name for the new clone dataset
+ * @extra: (nullable) (array zero-terminated=1): extra options for clone creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a clone dataset from a ZFS snapshot.
+ *
+ * Returns: whether the clone was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
+                                 const BDExtraArg **extra, GError **error) {
+    const gchar *argv[] = {"zfs", "clone", snapshot, clone_name, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, extra, error);
+}
+
+/**
+ * bd_zfs_bookmark_create:
+ * @snapshot: full snapshot name (dataset@snapname) to bookmark
+ * @bookmark: full bookmark name (dataset#bookmark)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a ZFS bookmark from an existing snapshot.
+ *
+ * Returns: whether the bookmark was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, GError **error) {
+    const gchar *argv[] = {"zfs", "bookmark", snapshot, bookmark, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_bookmark_destroy:
+ * @name: full bookmark name (dataset#bookmark)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys a ZFS bookmark.
+ *
+ * Returns: whether the bookmark was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zfs", "destroy", name, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_bookmark_list:
+ * @dataset: (nullable): dataset to list bookmarks for, or %NULL for all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS bookmarks for the given dataset or all bookmarks.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) {
+    const gchar **argv = NULL;
+    guint next_arg = 0;
+    guint num_args;
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    gchar **line_p = NULL;
+    GPtrArray *bookmarks;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    /* zfs list -H -p -t bookmark -o name,creation [dataset] NULL */
+    num_args = 8 + (dataset ? 1 : 0) + 1;
+    argv = g_new0 (const gchar*, num_args);
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "list";
+    argv[next_arg++] = "-H";
+    argv[next_arg++] = "-p";
+    argv[next_arg++] = "-t";
+    argv[next_arg++] = "bookmark";
+    argv[next_arg++] = "-o";
+    argv[next_arg++] = "name,creation";
+    if (dataset)
+        argv[next_arg++] = dataset;
+    argv[next_arg] = NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    g_free (argv);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    bookmarks = g_ptr_array_new ();
+    for (line_p = lines; *line_p; line_p++) {
+        gchar **fields = NULL;
+        guint num_fields;
+        BDZFSPropertyInfo *info = NULL;
+
+        if (strlen (*line_p) == 0)
+            continue;
+
+        fields = g_strsplit (*line_p, "\t", -1);
+        num_fields = g_strv_length (fields);
+
+        if (num_fields < 2) {
+            g_strfreev (fields);
+            continue;
+        }
+
+        info = g_new0 (BDZFSPropertyInfo, 1);
+        info->name = g_strdup (fields[0]);
+        info->value = g_strdup (fields[1]);
+        info->source = g_strdup ("");
+
+        g_strfreev (fields);
+        g_ptr_array_add (bookmarks, info);
+    }
+    g_strfreev (lines);
+
+    g_ptr_array_add (bookmarks, NULL);
+    return (BDZFSPropertyInfo **) g_ptr_array_free (bookmarks, FALSE);
+}

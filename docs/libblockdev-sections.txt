@@ -943,4 +943,12 @@ bd_zfs_dataset_unmount
 bd_zfs_dataset_get_property
 bd_zfs_dataset_set_property
 bd_zfs_dataset_get_properties
+bd_zfs_snapshot_create
+bd_zfs_snapshot_destroy
+bd_zfs_snapshot_list
+bd_zfs_snapshot_rollback
+bd_zfs_snapshot_clone
+bd_zfs_bookmark_create
+bd_zfs_bookmark_destroy
+bd_zfs_bookmark_list
 </SECTION>

@@ -1082,4 +1082,117 @@ gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, 
  */
 BDZFSPropertyInfo** bd_zfs_dataset_get_properties (const gchar *name, GError **error);
 
+/**
+ * bd_zfs_snapshot_create:
+ * @name: full snapshot name (dataset@snapname)
+ * @recursive: whether to recursively snapshot all descendant datasets
+ * @extra: (nullable) (array zero-terminated=1): extra options for snapshot creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS snapshot.
+ *
+ * Returns: whether the snapshot was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_snapshot_destroy:
+ * @name: full snapshot name (dataset@snapname)
+ * @recursive: whether to recursively destroy all dependent snapshots
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys a ZFS snapshot.
+ *
+ * Returns: whether the snapshot was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_snapshot_destroy (const gchar *name, gboolean recursive, GError **error);
+
+/**
+ * bd_zfs_snapshot_list:
+ * @dataset: (nullable): dataset to list snapshots for, or %NULL for all
+ * @recursive: whether to list snapshots recursively
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS snapshots for the given dataset or all snapshots.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of #BDZFSSnapshotInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSSnapshotInfo** bd_zfs_snapshot_list (const gchar *dataset, gboolean recursive, GError **error);
+
+/**
+ * bd_zfs_snapshot_rollback:
+ * @name: full snapshot name (dataset@snapname)
+ * @force: whether to force unmount of any clones
+ * @destroy_newer: whether to destroy any snapshots more recent than the given one
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Rolls back a ZFS dataset to the given snapshot.
+ *
+ * Returns: whether the rollback was successful or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean destroy_newer, GError **error);
+
+/**
+ * bd_zfs_snapshot_clone:
+ * @snapshot: full snapshot name (dataset@snapname) to clone from
+ * @clone_name: name for the new clone dataset
+ * @extra: (nullable) (array zero-terminated=1): extra options for clone creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a clone dataset from a ZFS snapshot.
+ *
+ * Returns: whether the clone was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_bookmark_create:
+ * @snapshot: full snapshot name (dataset@snapname) to bookmark
+ * @bookmark: full bookmark name (dataset#bookmark)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a ZFS bookmark from an existing snapshot.
+ *
+ * Returns: whether the bookmark was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, GError **error);
+
+/**
+ * bd_zfs_bookmark_destroy:
+ * @name: full bookmark name (dataset#bookmark)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys a ZFS bookmark.
+ *
+ * Returns: whether the bookmark was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_bookmark_list:
+ * @dataset: (nullable): dataset to list bookmarks for, or %NULL for all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS bookmarks for the given dataset or all bookmarks.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error);
+
 #endif /* BD_ZFS_API */
