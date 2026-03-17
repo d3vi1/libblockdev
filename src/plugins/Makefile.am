@@ -53,6 +53,10 @@ if WITH_S390
 lib_LTLIBRARIES += libbd_s390.la
 endif
 
+if WITH_ZFS
+lib_LTLIBRARIES += libbd_zfs.la
+endif
+
 
 if WITH_BTRFS
 libbd_btrfs_la_CFLAGS = $(GLIB_CFLAGS) $(GIO_CFLAGS) $(BYTESIZE_CFLAGS) -Wall -Wextra -Werror
@@ -132,6 +136,14 @@ libbd_s390_la_CPPFLAGS = -I${builddir}/../../include/
 libbd_s390_la_SOURCES = s390.c s390.h check_deps.c check_deps.h
 endif
 
+if WITH_ZFS
+libbd_zfs_la_CFLAGS = $(GLIB_CFLAGS) $(GIO_CFLAGS) -Wall -Wextra -Werror
+libbd_zfs_la_LIBADD = ${builddir}/../utils/libbd_utils.la $(GLIB_LIBS) $(GIO_LIBS)
+libbd_zfs_la_LDFLAGS = -L${srcdir}/../utils/ -version-info 3:0:0 -Wl,--no-undefined -export-symbols-regex '^bd_.*'
+libbd_zfs_la_CPPFLAGS = -I${builddir}/../../include/
+libbd_zfs_la_SOURCES = zfs.c zfs.h check_deps.c check_deps.h
+endif
+
 if WITH_PART
 libbd_part_la_CFLAGS = $(GLIB_CFLAGS) $(GIO_CFLAGS) $(FDISK_CFLAGS) -Wall -Wextra -Werror
 libbd_part_la_LIBADD = ${builddir}/../utils/libbd_utils.la $(GLIB_LIBS) $(GIO_LIBS) $(FDISK_LIBS)
@@ -185,6 +197,10 @@ endif
 
 if WITH_S390
 libinclude_HEADERS += s390.h
+endif
+
+if WITH_ZFS
+libinclude_HEADERS += zfs.h
 endif
 
 MAINTAINERCLEANFILES = Makefile.in

@@ -192,6 +192,7 @@ LIBBLOCKDEV_PLUGIN([FS], [fs])
 LIBBLOCKDEV_PLUGIN([NVDIMM], [nvdimm])
 LIBBLOCKDEV_PLUGIN([NVME], [nvme])
 LIBBLOCKDEV_PLUGIN([SMART], [smart])
+LIBBLOCKDEV_PLUGIN([ZFS], [zfs])
 
 dnl these packages/modules are always needed
 LIBBLOCKDEV_PKG_CHECK_MODULES([GLIB], [glib-2.0 >= 2.42.2])
@@ -398,6 +399,7 @@ echo "
         SMART plugin (libatasmart):   ${with_smart}
         SMART plugin (smartmontools): ${with_smartmontools}
         Swap plugin:                  ${with_swap}
+        ZFS plugin:                   ${with_zfs}
 
         GObject introspection:        ${found_introspection}
         Python 3 bindings:            ${python3_info}
