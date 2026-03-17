@@ -1053,3 +1053,576 @@ gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean tem
 
     return bd_utils_exec_and_report_error (argv, NULL, error);
 }
+
+/**
+ * bd_zfs_pool_scrub_start:
+ * @name: name of the pool to scrub
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Starts a scrub on the ZFS pool.
+ *
+ * Returns: whether the scrub was successfully started or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_scrub_start (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zpool", "scrub", name, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_scrub_stop:
+ * @name: name of the pool to stop scrubbing
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Stops a running scrub on the ZFS pool.
+ *
+ * Returns: whether the scrub was successfully stopped or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_scrub_stop (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zpool", "scrub", "-s", name, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_scrub_pause:
+ * @name: name of the pool to pause scrubbing
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Pauses a running scrub on the ZFS pool.
+ *
+ * Returns: whether the scrub was successfully paused or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_scrub_pause (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zpool", "scrub", "-p", name, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * parse_size_suffix:
+ *
+ * Parses a size string with a suffix (e.g. "1.23G", "456M", "789K") and
+ * returns the value in bytes. Returns 0 on parse failure.
+ */
+static guint64 parse_size_suffix (const gchar *str) {
+    gdouble val;
+    gchar *end = NULL;
+
+    if (!str || *str == '\0')
+        return 0;
+
+    val = g_ascii_strtod (str, &end);
+    if (end == str)
+        return 0;
+
+    if (end && *end != '\0') {
+        switch (*end) {
+            case 'K':
+                val *= 1024.0;
+                break;
+            case 'M':
+                val *= 1024.0 * 1024.0;
+                break;
+            case 'G':
+                val *= 1024.0 * 1024.0 * 1024.0;
+                break;
+            case 'T':
+                val *= 1024.0 * 1024.0 * 1024.0 * 1024.0;
+                break;
+            case 'P':
+                val *= 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0;
+                break;
+            case 'B':
+                /* just bytes */
+                break;
+            default:
+                break;
+        }
+    }
+
+    return (guint64) val;
+}
+
+/**
+ * bd_zfs_pool_scrub_status:
+ * @name: name of the pool to get scrub status for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets the scrub status for a ZFS pool by parsing ``zpool status`` output.
+ *
+ * Returns: (transfer full): a #BDZFSScrubInfo for the pool or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSScrubInfo* bd_zfs_pool_scrub_status (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zpool", "status", name, NULL};
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    gchar **line_p = NULL;
+    BDZFSScrubInfo *info = NULL;
+    gchar *scan_line = NULL;
+    gchar *next_line = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    /* Find the "scan:" line */
+    for (line_p = lines; *line_p; line_p++) {
+        gchar *stripped = g_strstrip (g_strdup (*line_p));
+        if (g_str_has_prefix (stripped, "scan:")) {
+            scan_line = stripped;
+            /* Grab the next line if available (for progress info) */
+            if (*(line_p + 1))
+                next_line = g_strstrip (g_strdup (*(line_p + 1)));
+            break;
+        }
+        g_free (stripped);
+    }
+
+    if (!scan_line) {
+        g_strfreev (lines);
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
+                     "Failed to find scan status for pool '%s'", name);
+        return NULL;
+    }
+
+    info = g_new0 (BDZFSScrubInfo, 1);
+    info->state = BD_ZFS_SCRUB_STATE_NONE;
+    info->total_bytes = 0;
+    info->scanned_bytes = 0;
+    info->issued_bytes = 0;
+    info->errors = 0;
+    info->percent_done = 0.0;
+    info->start_time = NULL;
+    info->end_time = NULL;
+
+    if (strstr (scan_line, "in progress")) {
+        info->state = BD_ZFS_SCRUB_STATE_SCANNING;
+
+        /* Try to parse "since <timestamp>" */
+        {
+            const gchar *since = strstr (scan_line, "since ");
+            if (since) {
+                since += 6; /* skip "since " */
+                info->start_time = g_strdup (since);
+            }
+        }
+
+        /* Parse the next line for progress details */
+        /* Example: "1.23G scanned at 456M/s, 789M issued at 123M/s, 2.00G total" */
+        if (next_line) {
+            gchar **tokens = g_regex_split_simple ("\\s+", next_line, 0, 0);
+            guint num_tokens = g_strv_length (tokens);
+
+            /* Look for "scanned" token to get scanned bytes */
+            for (guint i = 0; i + 1 < num_tokens; i++) {
+                if (g_strcmp0 (tokens[i + 1], "scanned") == 0 || g_str_has_prefix (tokens[i + 1], "scanned")) {
+                    info->scanned_bytes = parse_size_suffix (tokens[i]);
+                    break;
+                }
+            }
+
+            /* Look for "issued" token to get issued bytes */
+            for (guint i = 0; i + 1 < num_tokens; i++) {
+                if (g_strcmp0 (tokens[i + 1], "issued") == 0 || g_str_has_prefix (tokens[i + 1], "issued")) {
+                    info->issued_bytes = parse_size_suffix (tokens[i]);
+                    break;
+                }
+            }
+
+            /* Look for "total" token to get total bytes */
+            for (guint i = 0; i + 1 < num_tokens; i++) {
+                if (g_strcmp0 (tokens[i + 1], "total") == 0 || g_str_has_prefix (tokens[i + 1], "total")) {
+                    info->total_bytes = parse_size_suffix (tokens[i]);
+                    break;
+                }
+            }
+
+            g_strfreev (tokens);
+
+            /* Look for "% done" in subsequent lines */
+            for (gchar **lp = line_p + 1; *lp; lp++) {
+                if (strstr (*lp, "done")) {
+                    gchar *pct = strstr (*lp, "% done");
+                    if (!pct)
+                        pct = strstr (*lp, "done");
+                    if (pct) {
+                        /* Walk backward from "% done" to find the number */
+                        gchar *stripped_l = g_strstrip (g_strdup (*lp));
+                        gchar **parts = g_regex_split_simple ("\\s+", stripped_l, 0, 0);
+                        guint nparts = g_strv_length (parts);
+                        for (guint j = 0; j < nparts; j++) {
+                            if (strstr (parts[j], "done") && j > 0) {
+                                /* The previous token or this token might contain the percentage */
+                                gchar *pct_str = parts[j];
+                                if (strstr (pct_str, "%")) {
+                                    info->percent_done = g_ascii_strtod (pct_str, NULL);
+                                } else if (j > 0) {
+                                    pct_str = parts[j - 1];
+                                    /* Remove trailing % if present */
+                                    gchar *pct_end = strchr (pct_str, '%');
+                                    if (pct_end)
+                                        *pct_end = '\0';
+                                    info->percent_done = g_ascii_strtod (pct_str, NULL);
+                                }
+                                break;
+                            }
+                        }
+                        g_strfreev (parts);
+                        g_free (stripped_l);
+                    }
+                    break;
+                }
+            }
+
+            /* Look for errors in subsequent lines */
+            for (gchar **lp = line_p + 1; *lp; lp++) {
+                if (strstr (*lp, "errors")) {
+                    gchar *stripped_l = g_strstrip (g_strdup (*lp));
+                    gchar **parts = g_regex_split_simple ("\\s+", stripped_l, 0, 0);
+                    guint nparts = g_strv_length (parts);
+                    for (guint j = 0; j + 1 < nparts; j++) {
+                        if (g_strcmp0 (parts[j + 1], "errors") == 0) {
+                            info->errors = g_ascii_strtoull (parts[j], NULL, 10);
+                            break;
+                        }
+                    }
+                    g_strfreev (parts);
+                    g_free (stripped_l);
+                    break;
+                }
+            }
+        }
+    } else if (strstr (scan_line, "repaired")) {
+        info->state = BD_ZFS_SCRUB_STATE_FINISHED;
+        info->percent_done = 100.0;
+
+        /* Try to parse "on <timestamp>" for end_time */
+        {
+            const gchar *on = strstr (scan_line, " on ");
+            if (on) {
+                on += 4; /* skip " on " */
+                info->end_time = g_strdup (on);
+            }
+        }
+
+        /* Try to parse errors from the scan line itself: "with N errors" */
+        {
+            const gchar *with_err = strstr (scan_line, "with ");
+            if (with_err) {
+                with_err += 5; /* skip "with " */
+                info->errors = g_ascii_strtoull (with_err, NULL, 10);
+            }
+        }
+    } else if (strstr (scan_line, "canceled")) {
+        info->state = BD_ZFS_SCRUB_STATE_CANCELED;
+
+        /* Try to parse "on <timestamp>" */
+        {
+            const gchar *on = strstr (scan_line, " on ");
+            if (on) {
+                on += 4;
+                info->end_time = g_strdup (on);
+            }
+        }
+    } else if (strstr (scan_line, "paused")) {
+        info->state = BD_ZFS_SCRUB_STATE_PAUSED;
+
+        /* Try to parse "since <timestamp>" */
+        {
+            const gchar *since = strstr (scan_line, "since ");
+            if (since) {
+                since += 6;
+                info->start_time = g_strdup (since);
+            }
+        }
+    } else if (strstr (scan_line, "none requested")) {
+        info->state = BD_ZFS_SCRUB_STATE_NONE;
+    }
+
+    g_free (scan_line);
+    g_free (next_line);
+    g_strfreev (lines);
+
+    return info;
+}
+
+/**
+ * bd_zfs_pool_trim_start:
+ * @name: name of the pool to trim
+ * @vdev: (nullable): specific vdev to trim or %NULL to trim all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Starts a TRIM operation on the ZFS pool or a specific vdev.
+ *
+ * Returns: whether the trim was successfully started or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_trim_start (const gchar *name, const gchar *vdev, GError **error) {
+    const gchar *argv[5] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "trim";
+    argv[next_arg++] = name;
+    if (vdev)
+        argv[next_arg++] = vdev;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_trim_stop:
+ * @name: name of the pool to stop trimming
+ * @vdev: (nullable): specific vdev to stop trimming or %NULL for all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Stops a TRIM operation on the ZFS pool or a specific vdev.
+ *
+ * Returns: whether the trim was successfully stopped or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **error) {
+    const gchar *argv[6] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "trim";
+    argv[next_arg++] = "-s";
+    argv[next_arg++] = name;
+    if (vdev)
+        argv[next_arg++] = vdev;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_clear:
+ * @name: name of the pool to clear errors on
+ * @vdev: (nullable): specific vdev to clear errors on or %NULL for all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Clears device errors in a ZFS pool.
+ *
+ * Returns: whether the errors were successfully cleared or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_clear (const gchar *name, const gchar *vdev, GError **error) {
+    const gchar *argv[5] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "clear";
+    argv[next_arg++] = name;
+    if (vdev)
+        argv[next_arg++] = vdev;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * parse_property_line:
+ *
+ * Parses a single tab-separated line from `zpool get -H -p` output into
+ * a BDZFSPropertyInfo struct.
+ *
+ * Fields expected (in order): name, property, value, source
+ *
+ * Returns: (transfer full): a new BDZFSPropertyInfo or %NULL on parse error
+ */
+static BDZFSPropertyInfo* parse_property_line (const gchar *line) {
+    gchar **fields = NULL;
+    BDZFSPropertyInfo *info = NULL;
+    guint num_fields;
+
+    if (!line || strlen (line) == 0)
+        return NULL;
+
+    fields = g_strsplit (line, "\t", -1);
+    num_fields = g_strv_length (fields);
+
+    if (num_fields < 4) {
+        g_strfreev (fields);
+        return NULL;
+    }
+
+    info = g_new0 (BDZFSPropertyInfo, 1);
+
+    info->name = g_strdup (fields[1]);
+    info->value = g_strdup (fields[2]);
+    info->source = g_strdup (fields[3]);
+
+    g_strfreev (fields);
+    return info;
+}
+
+/**
+ * bd_zfs_pool_get_property:
+ * @name: name of the pool
+ * @property: name of the property to get
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets a single property from a ZFS pool.
+ *
+ * Returns: (transfer full): a #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo* bd_zfs_pool_get_property (const gchar *name, const gchar *property, GError **error) {
+    const gchar *argv[] = {"zpool", "get", "-H", "-p", property, name, NULL};
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    BDZFSPropertyInfo *info = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    /* Take the first non-empty line */
+    for (gchar **line_p = lines; *line_p; line_p++) {
+        if (strlen (*line_p) == 0)
+            continue;
+        info = parse_property_line (*line_p);
+        break;
+    }
+    g_strfreev (lines);
+
+    if (!info) {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
+                     "Failed to parse property '%s' for pool '%s'", property, name);
+        return NULL;
+    }
+
+    return info;
+}
+
+/**
+ * bd_zfs_pool_set_property:
+ * @name: name of the pool
+ * @property: name of the property to set
+ * @value: value to set the property to
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Sets a property on a ZFS pool.
+ *
+ * Returns: whether the property was successfully set or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error) {
+    gchar *prop_val = NULL;
+    const gchar *argv[5] = {NULL};
+    gboolean success;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    prop_val = g_strdup_printf ("%s=%s", property, value);
+
+    argv[0] = "zpool";
+    argv[1] = "set";
+    argv[2] = prop_val;
+    argv[3] = name;
+    argv[4] = NULL;
+
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
+    g_free (prop_val);
+    return success;
+}
+
+/**
+ * bd_zfs_pool_get_properties:
+ * @name: name of the pool
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets all properties from a ZFS pool.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zpool", "get", "-H", "-p", "all", name, NULL};
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    gchar **line_p = NULL;
+    GPtrArray *props;
+    BDZFSPropertyInfo *info = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    props = g_ptr_array_new ();
+    for (line_p = lines; *line_p; line_p++) {
+        if (strlen (*line_p) == 0)
+            continue;
+        info = parse_property_line (*line_p);
+        if (info)
+            g_ptr_array_add (props, info);
+    }
+    g_strfreev (lines);
+
+    g_ptr_array_add (props, NULL);
+    return (BDZFSPropertyInfo **) g_ptr_array_free (props, FALSE);
+}

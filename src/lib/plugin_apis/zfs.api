@@ -800,4 +800,141 @@ gboolean bd_zfs_pool_online (const gchar *name, const gchar *vdev, gboolean expa
  */
 gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean temporary, GError **error);
 
+/**
+ * bd_zfs_pool_scrub_start:
+ * @name: name of the pool to scrub
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Starts a scrub on the ZFS pool.
+ *
+ * Returns: whether the scrub was successfully started or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_scrub_start (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_scrub_stop:
+ * @name: name of the pool to stop scrubbing
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Stops a running scrub on the ZFS pool.
+ *
+ * Returns: whether the scrub was successfully stopped or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_scrub_stop (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_scrub_pause:
+ * @name: name of the pool to pause scrubbing
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Pauses a running scrub on the ZFS pool.
+ *
+ * Returns: whether the scrub was successfully paused or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_scrub_pause (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_scrub_status:
+ * @name: name of the pool to get scrub status for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets the scrub status for a ZFS pool by parsing ``zpool status`` output.
+ *
+ * Returns: (transfer full): a #BDZFSScrubInfo for the pool or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSScrubInfo* bd_zfs_pool_scrub_status (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_trim_start:
+ * @name: name of the pool to trim
+ * @vdev: (nullable): specific vdev to trim or %NULL to trim all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Starts a TRIM operation on the ZFS pool or a specific vdev.
+ *
+ * Returns: whether the trim was successfully started or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_trim_start (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_trim_stop:
+ * @name: name of the pool to stop trimming
+ * @vdev: (nullable): specific vdev to stop trimming or %NULL for all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Stops a TRIM operation on the ZFS pool or a specific vdev.
+ *
+ * Returns: whether the trim was successfully stopped or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_clear:
+ * @name: name of the pool to clear errors on
+ * @vdev: (nullable): specific vdev to clear errors on or %NULL for all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Clears device errors in a ZFS pool.
+ *
+ * Returns: whether the errors were successfully cleared or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_clear (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_get_property:
+ * @name: name of the pool
+ * @property: name of the property to get
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets a single property from a ZFS pool.
+ *
+ * Returns: (transfer full): a #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo* bd_zfs_pool_get_property (const gchar *name, const gchar *property, GError **error);
+
+/**
+ * bd_zfs_pool_set_property:
+ * @name: name of the pool
+ * @property: name of the property to set
+ * @value: value to set the property to
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Sets a property on a ZFS pool.
+ *
+ * Returns: whether the property was successfully set or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
+
+/**
+ * bd_zfs_pool_get_properties:
+ * @name: name of the pool
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets all properties from a ZFS pool.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **error);
+
 #endif /* BD_ZFS_API */
