@@ -933,4 +933,14 @@ bd_zfs_pool_clear
 bd_zfs_pool_get_property
 bd_zfs_pool_set_property
 bd_zfs_pool_get_properties
+bd_zfs_dataset_create
+bd_zfs_dataset_destroy
+bd_zfs_dataset_list
+bd_zfs_dataset_get_info
+bd_zfs_dataset_rename
+bd_zfs_dataset_mount
+bd_zfs_dataset_unmount
+bd_zfs_dataset_get_property
+bd_zfs_dataset_set_property
+bd_zfs_dataset_get_properties
 </SECTION>

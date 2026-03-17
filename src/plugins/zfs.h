@@ -226,4 +226,16 @@ BDZFSPropertyInfo* bd_zfs_pool_get_property (const gchar *name, const gchar *pro
 gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
 BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **error);
 
+gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GError **error);
+gboolean bd_zfs_dataset_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error);
+BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean recursive, GError **error);
+BDZFSDatasetInfo* bd_zfs_dataset_get_info (const gchar *name, GError **error);
+gboolean bd_zfs_dataset_rename (const gchar *name, const gchar *new_name, gboolean create_parent,
+                                 gboolean force, GError **error);
+gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const BDExtraArg **extra, GError **error);
+gboolean bd_zfs_dataset_unmount (const gchar *name, gboolean force, GError **error);
+BDZFSPropertyInfo* bd_zfs_dataset_get_property (const gchar *name, const gchar *property, GError **error);
+gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
+BDZFSPropertyInfo** bd_zfs_dataset_get_properties (const gchar *name, GError **error);
+
 #endif  /* BD_ZFS */
