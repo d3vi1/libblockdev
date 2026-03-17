@@ -594,4 +594,105 @@ GType bd_zfs_scrub_info_get_type () {
  */
 gboolean bd_zfs_is_tech_avail (BDZFSTech tech, guint64 mode, GError **error);
 
+/**
+ * bd_zfs_pool_create:
+ * @name: name of the pool to create
+ * @vdevs: (array zero-terminated=1): NULL-terminated array of device paths
+ * @raid_level: (nullable): vdev type ("mirror", "raidz", "raidz2", "raidz3") or %NULL for stripe
+ * @extra: (nullable) (array zero-terminated=1): extra options for pool creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS pool with the given name and vdevs.
+ *
+ * Returns: whether the pool was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar *raid_level, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_pool_destroy:
+ * @name: name of the pool to destroy
+ * @force: whether to force the destruction
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys the ZFS pool with the given name.
+ *
+ * Returns: whether the pool was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_pool_destroy (const gchar *name, gboolean force, GError **error);
+
+/**
+ * bd_zfs_pool_export:
+ * @name: name of the pool to export
+ * @force: whether to force the export
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Exports the ZFS pool with the given name.
+ *
+ * Returns: whether the pool was successfully exported or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_export (const gchar *name, gboolean force, GError **error);
+
+/**
+ * bd_zfs_pool_import:
+ * @name_or_guid: name or GUID of the pool to import
+ * @new_name: (nullable): new name for the pool or %NULL to keep the original
+ * @search_dirs: (nullable) (array zero-terminated=1): directories to search for devices or %NULL
+ * @force: whether to force the import
+ * @extra: (nullable) (array zero-terminated=1): extra options for pool import
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Imports a ZFS pool by name or GUID, optionally renaming it.
+ *
+ * Returns: whether the pool was successfully imported or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name, const gchar **search_dirs, gboolean force, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_pool_list:
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists all imported ZFS pools with their properties.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPoolInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPoolInfo** bd_zfs_pool_list (GError **error);
+
+/**
+ * bd_zfs_pool_get_info:
+ * @name: name of the pool to get info for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets information about a single ZFS pool.
+ *
+ * Returns: (transfer full): a #BDZFSPoolInfo for the given pool or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPoolInfo* bd_zfs_pool_get_info (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_get_vdevs:
+ * @name: name of the pool to get vdev tree for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets the vdev tree for a ZFS pool by parsing ``zpool status`` output.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          top-level #BDZFSVdevInfo (each may have recursive children) or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error);
+
 #endif /* BD_ZFS_API */
