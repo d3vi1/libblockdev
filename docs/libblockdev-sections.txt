@@ -720,6 +720,12 @@ bd_fs_udf_set_label
 bd_fs_udf_check_label
 bd_fs_udf_set_uuid
 bd_fs_udf_check_uuid
+BDFSZfsInfo
+bd_fs_zfs_get_info
+bd_fs_zfs_info_copy
+bd_fs_zfs_info_free
+bd_fs_zfs_check_label
+bd_fs_zfs_check_uuid
 </SECTION>
 
 <SECTION>

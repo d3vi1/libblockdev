@@ -174,6 +174,8 @@ static const BDFSFeatures fs_features[BD_FS_LAST_FS] = {
       .partition_type = "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
       .min_size = 2 MiB,
       .max_size = 16 TiB },
+    /* ZFS -- restricted: no operations through generic FS dispatch */
+    { 0 },
 };
 
 /**
@@ -312,6 +314,16 @@ const BDFSInfo fs_info[BD_FS_LAST_FS] = {
       .label_util = "udflabel",
       .info_util = "udfinfo",
       .uuid_util = "udflabel" },
+    /* ZFS -- restricted: only query via top-level ZFS plugin */
+    { .type = "zfs",
+      .mkfs_util = NULL,
+      .check_util = NULL,
+      .repair_util = NULL,
+      .resize_util = NULL,
+      .minsize_util = NULL,
+      .label_util = NULL,
+      .info_util = "zpool",
+      .uuid_util = NULL },
 };
 
 /**
@@ -366,6 +378,8 @@ static BDFSTech fstype_to_tech (const gchar *fstype) {
         return BD_FS_TECH_BTRFS;
     } else if (g_strcmp0 (fstype, "udf") == 0) {
         return BD_FS_TECH_UDF;
+    } else if (g_strcmp0 (fstype, "zfs") == 0 || g_strcmp0 (fstype, "zfs_member") == 0) {
+        return BD_FS_TECH_ZFS;
     } else {
         return BD_FS_TECH_GENERIC;
     }
