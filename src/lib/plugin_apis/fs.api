@@ -2696,6 +2696,20 @@ GType bd_fs_zfs_info_get_type () {
 }
 
 /**
+ * bd_fs_zfs_set_label:
+ * @device: a device that is a member of the ZFS pool to rename
+ * @label: the new pool name (label)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Renames the ZFS pool that @device belongs to by exporting and re-importing with the new name.
+ *
+ * Returns: whether the pool was successfully renamed or not
+ *
+ * Tech category: %BD_FS_TECH_ZFS-%BD_FS_TECH_MODE_SET_LABEL
+ */
+gboolean bd_fs_zfs_set_label (const gchar *device, const gchar *label, GError **error);
+
+/**
  * bd_fs_zfs_check_label:
  * @label: label to check
  * @error: (out) (optional): place to store error

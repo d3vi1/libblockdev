@@ -14,6 +14,7 @@ typedef struct BDFSZfsInfo {
 BDFSZfsInfo* bd_fs_zfs_info_copy (BDFSZfsInfo *data);
 void bd_fs_zfs_info_free (BDFSZfsInfo *data);
 
+gboolean bd_fs_zfs_set_label (const gchar *device, const gchar *label, GError **error);
 gboolean bd_fs_zfs_check_label (const gchar *label, GError **error);
 gboolean bd_fs_zfs_check_uuid (const gchar *uuid, GError **error);
 BDFSZfsInfo* bd_fs_zfs_get_info (const gchar *device, GError **error);

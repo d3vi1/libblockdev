@@ -174,8 +174,8 @@ static const BDFSFeatures fs_features[BD_FS_LAST_FS] = {
       .partition_type = "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
       .min_size = 2 MiB,
       .max_size = 16 TiB },
-    /* ZFS -- restricted: no operations through generic FS dispatch */
-    { 0 },
+    /* ZFS -- restricted: only label (pool rename) through generic dispatch */
+    { .configure = BD_FS_SUPPORT_SET_LABEL },
 };
 
 /**
@@ -321,7 +321,7 @@ const BDFSInfo fs_info[BD_FS_LAST_FS] = {
       .repair_util = NULL,
       .resize_util = NULL,
       .minsize_util = NULL,
-      .label_util = NULL,
+      .label_util = "zpool",
       .info_util = "zpool",
       .uuid_util = NULL },
 };
@@ -1231,7 +1231,7 @@ static gboolean device_operation (const gchar *device, const gchar *fstype, BDFS
             case BD_FS_CHECK:
                 break;  /* not supported through generic dispatch */
             case BD_FS_LABEL:
-                break;  /* ZFS has no traditional label; use pool name via top-level plugin */
+                return bd_fs_zfs_set_label (device, label, error);
             case BD_FS_LABEL_CHECK:
                 return bd_fs_zfs_check_label (label, error);
             case BD_FS_UUID:
