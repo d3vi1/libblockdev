@@ -877,11 +877,12 @@ bd_smart_device_self_test
 
 <SECTION>
 <FILE>zfs</FILE>
+bd_zfs_init
+bd_zfs_close
+bd_zfs_error_quark
+BD_ZFS_ERROR
 BDZFSError
 BDZFSTech
 BDZFSTechMode
-bd_zfs_error_quark
-bd_zfs_init
-bd_zfs_close
 bd_zfs_is_tech_avail
 </SECTION>

@@ -72,7 +72,8 @@ gboolean bd_zfs_init (void) {
  *
  */
 void bd_zfs_close (void) {
-    /* nothing to do here */
+    /* reset the cached deps so re-init re-checks tool availability */
+    avail_deps = 0;
 }
 
 /**
