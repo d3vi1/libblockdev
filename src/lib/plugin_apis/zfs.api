@@ -39,6 +39,548 @@ typedef enum {
     BD_ZFS_TECH_MODE_QUERY  = 1 << 3,
 } BDZFSTechMode;
 
+typedef enum {
+    BD_ZFS_POOL_STATE_ONLINE,
+    BD_ZFS_POOL_STATE_DEGRADED,
+    BD_ZFS_POOL_STATE_FAULTED,
+    BD_ZFS_POOL_STATE_OFFLINE,
+    BD_ZFS_POOL_STATE_REMOVED,
+    BD_ZFS_POOL_STATE_UNAVAIL,
+    BD_ZFS_POOL_STATE_UNKNOWN,
+} BDZFSPoolState;
+
+typedef enum {
+    BD_ZFS_VDEV_TYPE_DISK,
+    BD_ZFS_VDEV_TYPE_FILE,
+    BD_ZFS_VDEV_TYPE_MIRROR,
+    BD_ZFS_VDEV_TYPE_RAIDZ1,
+    BD_ZFS_VDEV_TYPE_RAIDZ2,
+    BD_ZFS_VDEV_TYPE_RAIDZ3,
+    BD_ZFS_VDEV_TYPE_DRAID,
+    BD_ZFS_VDEV_TYPE_SPARE,
+    BD_ZFS_VDEV_TYPE_LOG,
+    BD_ZFS_VDEV_TYPE_CACHE,
+    BD_ZFS_VDEV_TYPE_SPECIAL,
+    BD_ZFS_VDEV_TYPE_DEDUP,
+    BD_ZFS_VDEV_TYPE_ROOT,
+    BD_ZFS_VDEV_TYPE_UNKNOWN,
+} BDZFSVdevType;
+
+typedef enum {
+    BD_ZFS_VDEV_STATE_ONLINE,
+    BD_ZFS_VDEV_STATE_DEGRADED,
+    BD_ZFS_VDEV_STATE_FAULTED,
+    BD_ZFS_VDEV_STATE_OFFLINE,
+    BD_ZFS_VDEV_STATE_REMOVED,
+    BD_ZFS_VDEV_STATE_UNAVAIL,
+    BD_ZFS_VDEV_STATE_UNKNOWN,
+} BDZFSVdevState;
+
+typedef enum {
+    BD_ZFS_DATASET_TYPE_FILESYSTEM,
+    BD_ZFS_DATASET_TYPE_VOLUME,
+    BD_ZFS_DATASET_TYPE_SNAPSHOT,
+    BD_ZFS_DATASET_TYPE_BOOKMARK,
+} BDZFSDatasetType;
+
+typedef enum {
+    BD_ZFS_KEY_STATUS_NONE,
+    BD_ZFS_KEY_STATUS_AVAILABLE,
+    BD_ZFS_KEY_STATUS_UNAVAILABLE,
+} BDZFSKeyStatus;
+
+typedef enum {
+    BD_ZFS_SCRUB_STATE_NONE,
+    BD_ZFS_SCRUB_STATE_SCANNING,
+    BD_ZFS_SCRUB_STATE_FINISHED,
+    BD_ZFS_SCRUB_STATE_CANCELED,
+    BD_ZFS_SCRUB_STATE_PAUSED,
+} BDZFSScrubState;
+
+
+#define BD_ZFS_TYPE_POOL_INFO (bd_zfs_pool_info_get_type ())
+GType bd_zfs_pool_info_get_type();
+
+/**
+ * BDZFSPoolInfo:
+ * @name: name of the pool
+ * @guid: GUID of the pool
+ * @state: state of the pool
+ * @size: total size of the pool in bytes
+ * @allocated: allocated space in bytes
+ * @free: free space in bytes
+ * @fragmentation: fragmentation percentage (0-100)
+ * @dedup_ratio: deduplication ratio
+ * @readonly: whether the pool is read-only
+ * @altroot: alternate root directory or %NULL
+ * @ashift: ashift value for the pool
+ */
+typedef struct BDZFSPoolInfo {
+    gchar *name;
+    gchar *guid;
+    BDZFSPoolState state;
+    guint64 size;
+    guint64 allocated;
+    guint64 free;
+    guint64 fragmentation;
+    gdouble dedup_ratio;
+    gboolean readonly;
+    gchar *altroot;
+    gchar *ashift;
+} BDZFSPoolInfo;
+
+/**
+ * bd_zfs_pool_info_copy: (skip)
+ * @info: (nullable): %BDZFSPoolInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSPoolInfo* bd_zfs_pool_info_copy (BDZFSPoolInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSPoolInfo *new_info = g_new0 (BDZFSPoolInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->guid = g_strdup (info->guid);
+    new_info->state = info->state;
+    new_info->size = info->size;
+    new_info->allocated = info->allocated;
+    new_info->free = info->free;
+    new_info->fragmentation = info->fragmentation;
+    new_info->dedup_ratio = info->dedup_ratio;
+    new_info->readonly = info->readonly;
+    new_info->altroot = g_strdup (info->altroot);
+    new_info->ashift = g_strdup (info->ashift);
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_pool_info_free: (skip)
+ * @info: (nullable): %BDZFSPoolInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_pool_info_free (BDZFSPoolInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
+    g_free (info->guid);
+    g_free (info->altroot);
+    g_free (info->ashift);
+    g_free (info);
+}
+
+GType bd_zfs_pool_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSPoolInfo",
+                                            (GBoxedCopyFunc) bd_zfs_pool_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_pool_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_VDEV_INFO (bd_zfs_vdev_info_get_type ())
+GType bd_zfs_vdev_info_get_type();
+
+/**
+ * BDZFSVdevInfo:
+ * @path: path of the vdev device (or name for virtual vdevs)
+ * @type: type of the vdev
+ * @state: state of the vdev
+ * @alloc: allocated space in bytes
+ * @space: total space in bytes
+ * @read_errors: number of read errors
+ * @write_errors: number of write errors
+ * @checksum_errors: number of checksum errors
+ * @children: (nullable) (array zero-terminated=1): child vdevs or %NULL for leaf
+ */
+typedef struct BDZFSVdevInfo {
+    gchar *path;
+    BDZFSVdevType type;
+    BDZFSVdevState state;
+    guint64 alloc;
+    guint64 space;
+    guint64 read_errors;
+    guint64 write_errors;
+    guint64 checksum_errors;
+    struct BDZFSVdevInfo **children;
+} BDZFSVdevInfo;
+
+/**
+ * bd_zfs_vdev_info_copy: (skip)
+ * @info: (nullable): %BDZFSVdevInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSVdevInfo* bd_zfs_vdev_info_copy (BDZFSVdevInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSVdevInfo *new_info = g_new0 (BDZFSVdevInfo, 1);
+
+    new_info->path = g_strdup (info->path);
+    new_info->type = info->type;
+    new_info->state = info->state;
+    new_info->alloc = info->alloc;
+    new_info->space = info->space;
+    new_info->read_errors = info->read_errors;
+    new_info->write_errors = info->write_errors;
+    new_info->checksum_errors = info->checksum_errors;
+
+    if (info->children) {
+        guint64 count = 0;
+        for (BDZFSVdevInfo **child = info->children; *child != NULL; child++)
+            count++;
+        new_info->children = g_new0 (BDZFSVdevInfo *, count + 1);
+        for (guint64 i = 0; i < count; i++)
+            new_info->children[i] = bd_zfs_vdev_info_copy (info->children[i]);
+        new_info->children[count] = NULL;
+    } else {
+        new_info->children = NULL;
+    }
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_vdev_info_free: (skip)
+ * @info: (nullable): %BDZFSVdevInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_vdev_info_free (BDZFSVdevInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->path);
+
+    if (info->children) {
+        for (BDZFSVdevInfo **child = info->children; *child != NULL; child++)
+            bd_zfs_vdev_info_free (*child);
+        g_free (info->children);
+    }
+
+    g_free (info);
+}
+
+GType bd_zfs_vdev_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSVdevInfo",
+                                            (GBoxedCopyFunc) bd_zfs_vdev_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_vdev_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_DATASET_INFO (bd_zfs_dataset_info_get_type ())
+GType bd_zfs_dataset_info_get_type();
+
+/**
+ * BDZFSDatasetInfo:
+ * @name: name of the dataset
+ * @type: type of the dataset
+ * @mountpoint: mountpoint of the dataset or %NULL
+ * @origin: origin snapshot for clones or %NULL
+ * @used: used space in bytes
+ * @available: available space in bytes
+ * @referenced: referenced space in bytes
+ * @compression: compression algorithm
+ * @encryption: encryption algorithm or "off"
+ * @key_status: encryption key status
+ * @mounted: whether the dataset is mounted
+ */
+typedef struct BDZFSDatasetInfo {
+    gchar *name;
+    BDZFSDatasetType type;
+    gchar *mountpoint;
+    gchar *origin;
+    guint64 used;
+    guint64 available;
+    guint64 referenced;
+    gchar *compression;
+    gchar *encryption;
+    BDZFSKeyStatus key_status;
+    gboolean mounted;
+} BDZFSDatasetInfo;
+
+/**
+ * bd_zfs_dataset_info_copy: (skip)
+ * @info: (nullable): %BDZFSDatasetInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSDatasetInfo* bd_zfs_dataset_info_copy (BDZFSDatasetInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSDatasetInfo *new_info = g_new0 (BDZFSDatasetInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->type = info->type;
+    new_info->mountpoint = g_strdup (info->mountpoint);
+    new_info->origin = g_strdup (info->origin);
+    new_info->used = info->used;
+    new_info->available = info->available;
+    new_info->referenced = info->referenced;
+    new_info->compression = g_strdup (info->compression);
+    new_info->encryption = g_strdup (info->encryption);
+    new_info->key_status = info->key_status;
+    new_info->mounted = info->mounted;
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_dataset_info_free: (skip)
+ * @info: (nullable): %BDZFSDatasetInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_dataset_info_free (BDZFSDatasetInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
+    g_free (info->mountpoint);
+    g_free (info->origin);
+    g_free (info->compression);
+    g_free (info->encryption);
+    g_free (info);
+}
+
+GType bd_zfs_dataset_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSDatasetInfo",
+                                            (GBoxedCopyFunc) bd_zfs_dataset_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_dataset_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_SNAPSHOT_INFO (bd_zfs_snapshot_info_get_type ())
+GType bd_zfs_snapshot_info_get_type();
+
+/**
+ * BDZFSSnapshotInfo:
+ * @name: full name of the snapshot (pool/dataset@snap)
+ * @dataset: name of the parent dataset
+ * @used: used space in bytes
+ * @referenced: referenced space in bytes
+ * @creation: creation timestamp string
+ */
+typedef struct BDZFSSnapshotInfo {
+    gchar *name;
+    gchar *dataset;
+    guint64 used;
+    guint64 referenced;
+    gchar *creation;
+} BDZFSSnapshotInfo;
+
+/**
+ * bd_zfs_snapshot_info_copy: (skip)
+ * @info: (nullable): %BDZFSSnapshotInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSSnapshotInfo* bd_zfs_snapshot_info_copy (BDZFSSnapshotInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSSnapshotInfo *new_info = g_new0 (BDZFSSnapshotInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->dataset = g_strdup (info->dataset);
+    new_info->used = info->used;
+    new_info->referenced = info->referenced;
+    new_info->creation = g_strdup (info->creation);
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_snapshot_info_free: (skip)
+ * @info: (nullable): %BDZFSSnapshotInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_snapshot_info_free (BDZFSSnapshotInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
+    g_free (info->dataset);
+    g_free (info->creation);
+    g_free (info);
+}
+
+GType bd_zfs_snapshot_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSSnapshotInfo",
+                                            (GBoxedCopyFunc) bd_zfs_snapshot_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_snapshot_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_PROPERTY_INFO (bd_zfs_property_info_get_type ())
+GType bd_zfs_property_info_get_type();
+
+/**
+ * BDZFSPropertyInfo:
+ * @name: name of the property
+ * @value: value of the property
+ * @source: source of the property (e.g. "local", "default", "inherited")
+ */
+typedef struct BDZFSPropertyInfo {
+    gchar *name;
+    gchar *value;
+    gchar *source;
+} BDZFSPropertyInfo;
+
+/**
+ * bd_zfs_property_info_copy: (skip)
+ * @info: (nullable): %BDZFSPropertyInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSPropertyInfo* bd_zfs_property_info_copy (BDZFSPropertyInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSPropertyInfo *new_info = g_new0 (BDZFSPropertyInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->value = g_strdup (info->value);
+    new_info->source = g_strdup (info->source);
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_property_info_free: (skip)
+ * @info: (nullable): %BDZFSPropertyInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_property_info_free (BDZFSPropertyInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
+    g_free (info->value);
+    g_free (info->source);
+    g_free (info);
+}
+
+GType bd_zfs_property_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSPropertyInfo",
+                                            (GBoxedCopyFunc) bd_zfs_property_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_property_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_SCRUB_INFO (bd_zfs_scrub_info_get_type ())
+GType bd_zfs_scrub_info_get_type();
+
+/**
+ * BDZFSScrubInfo:
+ * @state: state of the scrub operation
+ * @total_bytes: total bytes to scrub
+ * @scanned_bytes: bytes scanned so far
+ * @issued_bytes: bytes issued (repaired) so far
+ * @errors: number of errors found
+ * @percent_done: percentage of scrub completed (0.0-100.0)
+ * @start_time: start time of the scrub
+ * @end_time: end time of the scrub or %NULL if still running
+ */
+typedef struct BDZFSScrubInfo {
+    BDZFSScrubState state;
+    guint64 total_bytes;
+    guint64 scanned_bytes;
+    guint64 issued_bytes;
+    guint64 errors;
+    gdouble percent_done;
+    gchar *start_time;
+    gchar *end_time;
+} BDZFSScrubInfo;
+
+/**
+ * bd_zfs_scrub_info_copy: (skip)
+ * @info: (nullable): %BDZFSScrubInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSScrubInfo* bd_zfs_scrub_info_copy (BDZFSScrubInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSScrubInfo *new_info = g_new0 (BDZFSScrubInfo, 1);
+
+    new_info->state = info->state;
+    new_info->total_bytes = info->total_bytes;
+    new_info->scanned_bytes = info->scanned_bytes;
+    new_info->issued_bytes = info->issued_bytes;
+    new_info->errors = info->errors;
+    new_info->percent_done = info->percent_done;
+    new_info->start_time = g_strdup (info->start_time);
+    new_info->end_time = g_strdup (info->end_time);
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_scrub_info_free: (skip)
+ * @info: (nullable): %BDZFSScrubInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_scrub_info_free (BDZFSScrubInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->start_time);
+    g_free (info->end_time);
+    g_free (info);
+}
+
+GType bd_zfs_scrub_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSScrubInfo",
+                                            (GBoxedCopyFunc) bd_zfs_scrub_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_scrub_info_free);
+    }
+
+    return type;
+}
+
+
 /**
  * bd_zfs_is_tech_avail:
  * @tech: the queried tech

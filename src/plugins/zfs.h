@@ -1,4 +1,5 @@
 #include <glib.h>
+#include <glib-object.h>
 #include <blockdev/utils.h>
 
 #ifndef BD_ZFS
@@ -34,6 +35,147 @@ typedef enum {
     BD_ZFS_TECH_MODE_MODIFY = 1 << 2,
     BD_ZFS_TECH_MODE_QUERY  = 1 << 3,
 } BDZFSTechMode;
+
+typedef enum {
+    BD_ZFS_POOL_STATE_ONLINE,
+    BD_ZFS_POOL_STATE_DEGRADED,
+    BD_ZFS_POOL_STATE_FAULTED,
+    BD_ZFS_POOL_STATE_OFFLINE,
+    BD_ZFS_POOL_STATE_REMOVED,
+    BD_ZFS_POOL_STATE_UNAVAIL,
+    BD_ZFS_POOL_STATE_UNKNOWN,
+} BDZFSPoolState;
+
+typedef enum {
+    BD_ZFS_VDEV_TYPE_DISK,
+    BD_ZFS_VDEV_TYPE_FILE,
+    BD_ZFS_VDEV_TYPE_MIRROR,
+    BD_ZFS_VDEV_TYPE_RAIDZ1,
+    BD_ZFS_VDEV_TYPE_RAIDZ2,
+    BD_ZFS_VDEV_TYPE_RAIDZ3,
+    BD_ZFS_VDEV_TYPE_DRAID,
+    BD_ZFS_VDEV_TYPE_SPARE,
+    BD_ZFS_VDEV_TYPE_LOG,
+    BD_ZFS_VDEV_TYPE_CACHE,
+    BD_ZFS_VDEV_TYPE_SPECIAL,
+    BD_ZFS_VDEV_TYPE_DEDUP,
+    BD_ZFS_VDEV_TYPE_ROOT,
+    BD_ZFS_VDEV_TYPE_UNKNOWN,
+} BDZFSVdevType;
+
+typedef enum {
+    BD_ZFS_VDEV_STATE_ONLINE,
+    BD_ZFS_VDEV_STATE_DEGRADED,
+    BD_ZFS_VDEV_STATE_FAULTED,
+    BD_ZFS_VDEV_STATE_OFFLINE,
+    BD_ZFS_VDEV_STATE_REMOVED,
+    BD_ZFS_VDEV_STATE_UNAVAIL,
+    BD_ZFS_VDEV_STATE_UNKNOWN,
+} BDZFSVdevState;
+
+typedef enum {
+    BD_ZFS_DATASET_TYPE_FILESYSTEM,
+    BD_ZFS_DATASET_TYPE_VOLUME,
+    BD_ZFS_DATASET_TYPE_SNAPSHOT,
+    BD_ZFS_DATASET_TYPE_BOOKMARK,
+} BDZFSDatasetType;
+
+typedef enum {
+    BD_ZFS_KEY_STATUS_NONE,
+    BD_ZFS_KEY_STATUS_AVAILABLE,
+    BD_ZFS_KEY_STATUS_UNAVAILABLE,
+} BDZFSKeyStatus;
+
+typedef enum {
+    BD_ZFS_SCRUB_STATE_NONE,
+    BD_ZFS_SCRUB_STATE_SCANNING,
+    BD_ZFS_SCRUB_STATE_FINISHED,
+    BD_ZFS_SCRUB_STATE_CANCELED,
+    BD_ZFS_SCRUB_STATE_PAUSED,
+} BDZFSScrubState;
+
+typedef struct BDZFSPoolInfo {
+    gchar *name;
+    gchar *guid;
+    BDZFSPoolState state;
+    guint64 size;
+    guint64 allocated;
+    guint64 free;
+    guint64 fragmentation;
+    gdouble dedup_ratio;
+    gboolean readonly;
+    gchar *altroot;
+    gchar *ashift;
+} BDZFSPoolInfo;
+
+void bd_zfs_pool_info_free (BDZFSPoolInfo *info);
+BDZFSPoolInfo* bd_zfs_pool_info_copy (BDZFSPoolInfo *info);
+
+typedef struct BDZFSVdevInfo {
+    gchar *path;
+    BDZFSVdevType type;
+    BDZFSVdevState state;
+    guint64 alloc;
+    guint64 space;
+    guint64 read_errors;
+    guint64 write_errors;
+    guint64 checksum_errors;
+    struct BDZFSVdevInfo **children;
+} BDZFSVdevInfo;
+
+void bd_zfs_vdev_info_free (BDZFSVdevInfo *info);
+BDZFSVdevInfo* bd_zfs_vdev_info_copy (BDZFSVdevInfo *info);
+
+typedef struct BDZFSDatasetInfo {
+    gchar *name;
+    BDZFSDatasetType type;
+    gchar *mountpoint;
+    gchar *origin;
+    guint64 used;
+    guint64 available;
+    guint64 referenced;
+    gchar *compression;
+    gchar *encryption;
+    BDZFSKeyStatus key_status;
+    gboolean mounted;
+} BDZFSDatasetInfo;
+
+void bd_zfs_dataset_info_free (BDZFSDatasetInfo *info);
+BDZFSDatasetInfo* bd_zfs_dataset_info_copy (BDZFSDatasetInfo *info);
+
+typedef struct BDZFSSnapshotInfo {
+    gchar *name;
+    gchar *dataset;
+    guint64 used;
+    guint64 referenced;
+    gchar *creation;
+} BDZFSSnapshotInfo;
+
+void bd_zfs_snapshot_info_free (BDZFSSnapshotInfo *info);
+BDZFSSnapshotInfo* bd_zfs_snapshot_info_copy (BDZFSSnapshotInfo *info);
+
+typedef struct BDZFSPropertyInfo {
+    gchar *name;
+    gchar *value;
+    gchar *source;
+} BDZFSPropertyInfo;
+
+void bd_zfs_property_info_free (BDZFSPropertyInfo *info);
+BDZFSPropertyInfo* bd_zfs_property_info_copy (BDZFSPropertyInfo *info);
+
+typedef struct BDZFSScrubInfo {
+    BDZFSScrubState state;
+    guint64 total_bytes;
+    guint64 scanned_bytes;
+    guint64 issued_bytes;
+    guint64 errors;
+    gdouble percent_done;
+    gchar *start_time;
+    gchar *end_time;
+} BDZFSScrubInfo;
+
+void bd_zfs_scrub_info_free (BDZFSScrubInfo *info);
+BDZFSScrubInfo* bd_zfs_scrub_info_copy (BDZFSScrubInfo *info);
 
 /*
  * If using the plugin as a standalone library, the following functions should
