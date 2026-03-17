@@ -819,3 +819,237 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
     g_ptr_array_add (top_vdevs, NULL);
     return (BDZFSVdevInfo **) g_ptr_array_free (top_vdevs, FALSE);
 }
+
+/**
+ * bd_zfs_pool_add_vdev:
+ * @name: name of the pool to add vdevs to
+ * @vdevs: (array zero-terminated=1): NULL-terminated array of device paths to add
+ * @raid_level: (nullable): vdev type ("mirror", "raidz", "raidz2", "raidz3") or %NULL for stripe
+ * @extra: (nullable) (array zero-terminated=1): extra options for the operation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Adds one or more vdevs to an existing ZFS pool.
+ *
+ * Returns: whether the vdevs were successfully added or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gchar *raid_level,
+                                const BDExtraArg **extra, GError **error) {
+    const gchar **argv = NULL;
+    guint num_vdevs = 0;
+    guint num_args = 0;
+    guint next_arg = 0;
+    gboolean success = FALSE;
+    const gchar **vdev_p = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    if (!vdevs || !vdevs[0]) {
+        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No vdevs given");
+        return FALSE;
+    }
+
+    for (vdev_p = vdevs; *vdev_p != NULL; vdev_p++)
+        num_vdevs++;
+
+    /* zpool add [-f] <name> [raid_level] <vdev1> ... <vdevN> NULL */
+    num_args = 3 + num_vdevs + (raid_level ? 1 : 0) + 1;
+    argv = g_new0 (const gchar*, num_args);
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "add";
+    argv[next_arg++] = name;
+    if (raid_level)
+        argv[next_arg++] = raid_level;
+    for (vdev_p = vdevs; *vdev_p != NULL; vdev_p++)
+        argv[next_arg++] = *vdev_p;
+    argv[next_arg] = NULL;
+
+    success = bd_utils_exec_and_report_error (argv, extra, error);
+    g_free (argv);
+    return success;
+}
+
+/**
+ * bd_zfs_pool_remove_vdev:
+ * @name: name of the pool to remove a vdev from
+ * @vdev: the vdev to remove
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Removes a vdev from a ZFS pool.
+ *
+ * Returns: whether the vdev was successfully removed or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_remove_vdev (const gchar *name, const gchar *vdev, GError **error) {
+    const gchar *argv[5] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "remove";
+    argv[next_arg++] = name;
+    argv[next_arg++] = vdev;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_attach:
+ * @name: name of the pool
+ * @existing_vdev: the existing vdev to attach to
+ * @new_vdev: the new vdev to attach
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Attaches a new vdev to an existing vdev in a ZFS pool (creating or extending a mirror).
+ *
+ * Returns: whether the vdev was successfully attached or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_attach (const gchar *name, const gchar *existing_vdev, const gchar *new_vdev, GError **error) {
+    const gchar *argv[6] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "attach";
+    argv[next_arg++] = name;
+    argv[next_arg++] = existing_vdev;
+    argv[next_arg++] = new_vdev;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_detach:
+ * @name: name of the pool
+ * @vdev: the vdev to detach
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Detaches a vdev from a ZFS pool mirror.
+ *
+ * Returns: whether the vdev was successfully detached or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_detach (const gchar *name, const gchar *vdev, GError **error) {
+    const gchar *argv[5] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "detach";
+    argv[next_arg++] = name;
+    argv[next_arg++] = vdev;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_replace:
+ * @name: name of the pool
+ * @old_vdev: the vdev to replace
+ * @new_vdev: the replacement vdev
+ * @force: whether to force the replacement
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Replaces a vdev in a ZFS pool with a new device.
+ *
+ * Returns: whether the vdev was successfully replaced or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_replace (const gchar *name, const gchar *old_vdev, const gchar *new_vdev,
+                               gboolean force, GError **error) {
+    const gchar *argv[7] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "replace";
+    if (force)
+        argv[next_arg++] = "-f";
+    argv[next_arg++] = name;
+    argv[next_arg++] = old_vdev;
+    argv[next_arg++] = new_vdev;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_online:
+ * @name: name of the pool
+ * @vdev: the vdev to bring online
+ * @expand: whether to expand the device to use all available space
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Brings a vdev in a ZFS pool online.
+ *
+ * Returns: whether the vdev was successfully brought online or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_online (const gchar *name, const gchar *vdev, gboolean expand, GError **error) {
+    const gchar *argv[6] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "online";
+    if (expand)
+        argv[next_arg++] = "-e";
+    argv[next_arg++] = name;
+    argv[next_arg++] = vdev;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_offline:
+ * @name: name of the pool
+ * @vdev: the vdev to take offline
+ * @temporary: whether the offline state is temporary (reverts on reboot)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Takes a vdev in a ZFS pool offline.
+ *
+ * Returns: whether the vdev was successfully taken offline or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean temporary, GError **error) {
+    const gchar *argv[6] = {NULL};
+    guint next_arg = 0;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    argv[next_arg++] = "zpool";
+    argv[next_arg++] = "offline";
+    if (temporary)
+        argv[next_arg++] = "-t";
+    argv[next_arg++] = name;
+    argv[next_arg++] = vdev;
+    argv[next_arg] = NULL;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}

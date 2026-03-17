@@ -695,4 +695,109 @@ BDZFSPoolInfo* bd_zfs_pool_get_info (const gchar *name, GError **error);
  */
 BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error);
 
+/**
+ * bd_zfs_pool_add_vdev:
+ * @name: name of the pool to add vdevs to
+ * @vdevs: (array zero-terminated=1): NULL-terminated array of device paths to add
+ * @raid_level: (nullable): vdev type ("mirror", "raidz", "raidz2", "raidz3") or %NULL for stripe
+ * @extra: (nullable) (array zero-terminated=1): extra options for the operation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Adds one or more vdevs to an existing ZFS pool.
+ *
+ * Returns: whether the vdevs were successfully added or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gchar *raid_level, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_pool_remove_vdev:
+ * @name: name of the pool to remove a vdev from
+ * @vdev: the vdev to remove
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Removes a vdev from a ZFS pool.
+ *
+ * Returns: whether the vdev was successfully removed or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_remove_vdev (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_attach:
+ * @name: name of the pool
+ * @existing_vdev: the existing vdev to attach to
+ * @new_vdev: the new vdev to attach
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Attaches a new vdev to an existing vdev in a ZFS pool (creating or extending a mirror).
+ *
+ * Returns: whether the vdev was successfully attached or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_attach (const gchar *name, const gchar *existing_vdev, const gchar *new_vdev, GError **error);
+
+/**
+ * bd_zfs_pool_detach:
+ * @name: name of the pool
+ * @vdev: the vdev to detach
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Detaches a vdev from a ZFS pool mirror.
+ *
+ * Returns: whether the vdev was successfully detached or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_detach (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_replace:
+ * @name: name of the pool
+ * @old_vdev: the vdev to replace
+ * @new_vdev: the replacement vdev
+ * @force: whether to force the replacement
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Replaces a vdev in a ZFS pool with a new device.
+ *
+ * Returns: whether the vdev was successfully replaced or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_replace (const gchar *name, const gchar *old_vdev, const gchar *new_vdev, gboolean force, GError **error);
+
+/**
+ * bd_zfs_pool_online:
+ * @name: name of the pool
+ * @vdev: the vdev to bring online
+ * @expand: whether to expand the device to use all available space
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Brings a vdev in a ZFS pool online.
+ *
+ * Returns: whether the vdev was successfully brought online or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_online (const gchar *name, const gchar *vdev, gboolean expand, GError **error);
+
+/**
+ * bd_zfs_pool_offline:
+ * @name: name of the pool
+ * @vdev: the vdev to take offline
+ * @temporary: whether the offline state is temporary (reverts on reboot)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Takes a vdev in a ZFS pool offline.
+ *
+ * Returns: whether the vdev was successfully taken offline or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean temporary, GError **error);
+
 #endif /* BD_ZFS_API */
