@@ -1,5 +1,4 @@
 #include <glib.h>
-#include <glib-object.h>
 #include <blockdev/utils.h>
 
 #ifndef BD_ZFS
@@ -36,6 +35,14 @@ typedef enum {
     BD_ZFS_TECH_MODE_QUERY  = 1 << 3,
 } BDZFSTechMode;
 
+/*
+ * If using the plugin as a standalone library, the following functions should
+ * be called to:
+ *
+ * init()       - initialize the plugin, returning TRUE on success
+ * close()      - clean after the plugin at the end or if no longer used
+ *
+ */
 gboolean bd_zfs_init (void);
 void bd_zfs_close (void);
 

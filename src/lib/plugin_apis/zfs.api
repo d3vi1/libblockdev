@@ -39,9 +39,17 @@ typedef enum {
     BD_ZFS_TECH_MODE_QUERY  = 1 << 3,
 } BDZFSTechMode;
 
-gboolean bd_zfs_init (void);
-void bd_zfs_close (void);
-
+/**
+ * bd_zfs_is_tech_avail:
+ * @tech: the queried tech
+ * @mode: a bit mask of queried modes of operation (#BDZFSTechMode) for @tech
+ * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
+ *
+ * Returns: whether the @tech-@mode combination is available -- both
+ *          require the ``zpool`` and ``zfs`` utilities
+ *
+ * Tech category: always available
+ */
 gboolean bd_zfs_is_tech_avail (BDZFSTech tech, guint64 mode, GError **error);
 
 #endif /* BD_ZFS_API */
