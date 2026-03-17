@@ -955,4 +955,7 @@ bd_zfs_encryption_load_key
 bd_zfs_encryption_unload_key
 bd_zfs_encryption_change_key
 bd_zfs_encryption_key_status
+bd_zfs_zvol_create
+bd_zfs_zvol_destroy
+bd_zfs_zvol_resize
 </SECTION>

@@ -256,4 +256,9 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
                                         const BDExtraArg **extra, GError **error);
 BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **error);
 
+gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse,
+                              const BDExtraArg **extra, GError **error);
+gboolean bd_zfs_zvol_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error);
+gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error);
+
 #endif  /* BD_ZFS */
