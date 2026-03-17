@@ -2476,3 +2476,137 @@ BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) 
     g_ptr_array_add (bookmarks, NULL);
     return (BDZFSPropertyInfo **) g_ptr_array_free (bookmarks, FALSE);
 }
+
+/**
+ * bd_zfs_encryption_load_key:
+ * @dataset: name of the encrypted dataset to load the key for
+ * @key_location: (nullable): key location URI (e.g. "file:///path/to/keyfile") or %NULL to use the dataset's keylocation property
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Loads the encryption key for a ZFS dataset. If @key_location is %NULL, the
+ * dataset's own keylocation property is used. If @key_location starts with
+ * "file://", it is passed directly as the key location via -L. Otherwise the
+ * value is treated as a passphrase and piped to ``zfs load-key`` via stdin
+ * using ``-L prompt``.
+ *
+ * Returns: whether the key was successfully loaded or not
+ *
+ * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_encryption_load_key (const gchar *dataset, const gchar *key_location, GError **error) {
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    if (key_location == NULL) {
+        /* Use the dataset's own keylocation property */
+        const gchar *argv[] = {"zfs", "load-key", dataset, NULL};
+        return bd_utils_exec_and_report_error (argv, NULL, error);
+    } else if (g_str_has_prefix (key_location, "file://")) {
+        /* File-based key location — pass directly via -L */
+        const gchar *argv[] = {"zfs", "load-key", "-L", key_location, dataset, NULL};
+        return bd_utils_exec_and_report_error (argv, NULL, error);
+    } else {
+        /* Passphrase string — pipe via stdin with -L prompt */
+        const gchar *argv[] = {"zfs", "load-key", "-L", "prompt", dataset, NULL};
+        return bd_utils_exec_with_input (argv, key_location, NULL, error);
+    }
+}
+
+/**
+ * bd_zfs_encryption_unload_key:
+ * @dataset: name of the encrypted dataset to unload the key for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Unloads the encryption key for a ZFS dataset, making it inaccessible
+ * until the key is loaded again.
+ *
+ * Returns: whether the key was successfully unloaded or not
+ *
+ * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error) {
+    const gchar *argv[] = {"zfs", "unload-key", dataset, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_encryption_change_key:
+ * @dataset: name of the encrypted dataset to change the key for
+ * @new_key_location: (nullable): new key location URI (e.g. "file:///path/to/keyfile") or %NULL to inherit from parent
+ * @extra: (nullable) (array zero-terminated=1): extra options for the key change operation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Changes the encryption key or key location for a ZFS dataset. If
+ * @new_key_location is %NULL, the ``-i`` flag is used to inherit the
+ * key from the parent dataset. If @new_key_location starts with "file://",
+ * it is passed as the new key location via ``-l``.
+ *
+ * Returns: whether the key was successfully changed or not
+ *
+ * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_key_location,
+                                        const BDExtraArg **extra, GError **error) {
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    if (new_key_location == NULL) {
+        /* Inherit key from parent */
+        const gchar *argv[] = {"zfs", "change-key", "-i", dataset, NULL};
+        return bd_utils_exec_and_report_error (argv, extra, error);
+    } else if (g_str_has_prefix (new_key_location, "file://")) {
+        /* File-based key location */
+        const gchar *argv[] = {"zfs", "change-key", "-l", new_key_location, dataset, NULL};
+        return bd_utils_exec_and_report_error (argv, extra, error);
+    } else {
+        /* Treat as a raw key location string */
+        const gchar *argv[] = {"zfs", "change-key", "-l", new_key_location, dataset, NULL};
+        return bd_utils_exec_and_report_error (argv, extra, error);
+    }
+}
+
+/**
+ * bd_zfs_encryption_key_status:
+ * @dataset: name of the dataset to query key status for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Queries the encryption key status of a ZFS dataset by reading the
+ * ``keystatus`` property.
+ *
+ * Returns: the #BDZFSKeyStatus of the dataset, or %BD_ZFS_KEY_STATUS_NONE on error
+ *
+ * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **error) {
+    const gchar *argv[] = {"zfs", "get", "-H", "-p", "-o", "value", "keystatus", dataset, NULL};
+    gchar *output = NULL;
+    gboolean success;
+    gchar *value = NULL;
+    BDZFSKeyStatus ret = BD_ZFS_KEY_STATUS_NONE;
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return BD_ZFS_KEY_STATUS_NONE;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        g_free (output);
+        return BD_ZFS_KEY_STATUS_NONE;
+    }
+
+    /* Strip trailing whitespace/newlines */
+    value = g_strstrip (output);
+
+    if (g_strcmp0 (value, "available") == 0)
+        ret = BD_ZFS_KEY_STATUS_AVAILABLE;
+    else if (g_strcmp0 (value, "unavailable") == 0)
+        ret = BD_ZFS_KEY_STATUS_UNAVAILABLE;
+    else
+        ret = BD_ZFS_KEY_STATUS_NONE;
+
+    g_free (output);
+    return ret;
+}

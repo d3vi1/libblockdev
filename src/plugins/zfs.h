@@ -250,4 +250,10 @@ gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, G
 gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error);
 BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error);
 
+gboolean bd_zfs_encryption_load_key (const gchar *dataset, const gchar *key_location, GError **error);
+gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error);
+gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_key_location,
+                                        const BDExtraArg **extra, GError **error);
+BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **error);
+
 #endif  /* BD_ZFS */
