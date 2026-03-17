@@ -201,4 +201,15 @@ BDZFSPoolInfo** bd_zfs_pool_list (GError **error);
 BDZFSPoolInfo* bd_zfs_pool_get_info (const gchar *name, GError **error);
 BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error);
 
+gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gchar *raid_level,
+                                const BDExtraArg **extra, GError **error);
+gboolean bd_zfs_pool_remove_vdev (const gchar *name, const gchar *vdev, GError **error);
+gboolean bd_zfs_pool_attach (const gchar *name, const gchar *existing_vdev,
+                              const gchar *new_vdev, GError **error);
+gboolean bd_zfs_pool_detach (const gchar *name, const gchar *vdev, GError **error);
+gboolean bd_zfs_pool_replace (const gchar *name, const gchar *old_vdev, const gchar *new_vdev,
+                               gboolean force, GError **error);
+gboolean bd_zfs_pool_online (const gchar *name, const gchar *vdev, gboolean expand, GError **error);
+gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean temporary, GError **error);
+
 #endif  /* BD_ZFS */
