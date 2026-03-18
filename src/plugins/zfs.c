@@ -1960,7 +1960,7 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
-    /* zfs list -H -p -t filesystem,volume [-r] -o <fields> [pool_or_parent] NULL */
+    /* zfs list -H -p -t all [-r] -o <fields> [pool_or_parent] NULL */
     num_args = 8 + (recursive ? 1 : 0) + (pool_or_parent ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
@@ -1969,7 +1969,7 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
     argv[next_arg++] = "-H";
     argv[next_arg++] = "-p";
     argv[next_arg++] = "-t";
-    argv[next_arg++] = "filesystem,volume";
+    argv[next_arg++] = "all";
     if (recursive)
         argv[next_arg++] = "-r";
     argv[next_arg++] = "-o";
