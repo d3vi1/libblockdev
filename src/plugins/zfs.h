@@ -198,6 +198,7 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
                              const gchar **search_dirs, gboolean force,
                              const BDExtraArg **extra, GError **error);
 BDZFSPoolInfo** bd_zfs_pool_list (GError **error);
+BDZFSPoolInfo** bd_zfs_pool_list_importable (GError **error);
 BDZFSPoolInfo* bd_zfs_pool_get_info (const gchar *name, GError **error);
 BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error);
 

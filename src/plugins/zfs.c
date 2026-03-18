@@ -622,6 +622,131 @@ BDZFSPoolInfo** bd_zfs_pool_list (GError **error) {
 }
 
 /**
+ * bd_zfs_pool_list_importable:
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS pools available for import by parsing ``zpool import`` output.
+ * Each pool block in the output contains a name, numeric id (GUID), and state.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPoolInfo or %NULL in case of error.  Only the name, guid, and
+ *          state fields are populated; size/alloc/free etc. are zero.
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPoolInfo** bd_zfs_pool_list_importable (GError **error) {
+    const gchar *argv[] = {"zpool", "import", NULL};
+    gchar *output = NULL;
+    gboolean success;
+    gchar **lines = NULL;
+    gchar **line_p = NULL;
+    GPtrArray *pool_infos;
+    gchar *cur_name = NULL;
+    gchar *cur_id = NULL;
+    gchar *cur_state = NULL;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        /* zpool import returns exit code 1 when there are no pools to import
+         * but also when there is a real error.  If stderr contains "no pools
+         * available to import" we treat it as an empty list rather than an
+         * error. */
+        if (error && *error) {
+            if (g_strrstr ((*error)->message, "no pools available to import") != NULL) {
+                g_clear_error (error);
+                g_free (output);
+                pool_infos = g_ptr_array_new ();
+                g_ptr_array_add (pool_infos, NULL);
+                return (BDZFSPoolInfo **) g_ptr_array_free (pool_infos, FALSE);
+            }
+        }
+        g_free (output);
+        return NULL;
+    }
+
+    /* If the command succeeded but produced no output, return an empty list. */
+    if (output == NULL || strlen (output) == 0) {
+        g_free (output);
+        pool_infos = g_ptr_array_new ();
+        g_ptr_array_add (pool_infos, NULL);
+        return (BDZFSPoolInfo **) g_ptr_array_free (pool_infos, FALSE);
+    }
+
+    /*
+     * The output of `zpool import` (no arguments) looks like:
+     *
+     *    pool: testpool
+     *      id: 4627607309443620138
+     *   state: ONLINE
+     *  action: The pool can be imported using its name or numeric identifier.
+     *  config:
+     *      testpool  ONLINE
+     *        loop6   ONLINE
+     *
+     * Multiple pool blocks are separated by blank lines.
+     * We extract pool, id, and state from each block.
+     */
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    pool_infos = g_ptr_array_new ();
+
+    for (line_p = lines; *line_p; line_p++) {
+        gchar *trimmed = g_strstrip (g_strdup (*line_p));
+
+        if (g_str_has_prefix (trimmed, "pool:")) {
+            /* If we already have a complete pool entry, flush it */
+            if (cur_name && cur_id) {
+                BDZFSPoolInfo *info = g_new0 (BDZFSPoolInfo, 1);
+                info->name = cur_name;
+                info->guid = cur_id;
+                info->state = cur_state ? parse_pool_state (cur_state) : BD_ZFS_POOL_STATE_UNKNOWN;
+                g_free (cur_state);
+                g_ptr_array_add (pool_infos, info);
+                cur_name = NULL;
+                cur_id = NULL;
+                cur_state = NULL;
+            } else {
+                g_free (cur_name);
+                g_free (cur_id);
+                g_free (cur_state);
+            }
+            cur_name = g_strdup (g_strstrip (trimmed + 5));
+        } else if (g_str_has_prefix (trimmed, "id:")) {
+            g_free (cur_id);
+            cur_id = g_strdup (g_strstrip (trimmed + 3));
+        } else if (g_str_has_prefix (trimmed, "state:")) {
+            g_free (cur_state);
+            cur_state = g_strdup (g_strstrip (trimmed + 6));
+        }
+
+        g_free (trimmed);
+    }
+
+    /* Flush the last pool entry */
+    if (cur_name && cur_id) {
+        BDZFSPoolInfo *info = g_new0 (BDZFSPoolInfo, 1);
+        info->name = cur_name;
+        info->guid = cur_id;
+        info->state = cur_state ? parse_pool_state (cur_state) : BD_ZFS_POOL_STATE_UNKNOWN;
+        g_free (cur_state);
+        g_ptr_array_add (pool_infos, info);
+    } else {
+        g_free (cur_name);
+        g_free (cur_id);
+        g_free (cur_state);
+    }
+
+    g_strfreev (lines);
+
+    g_ptr_array_add (pool_infos, NULL);
+    return (BDZFSPoolInfo **) g_ptr_array_free (pool_infos, FALSE);
+}
+
+/**
  * bd_zfs_pool_get_info:
  * @name: name of the pool to get info for
  * @error: (out) (optional): place to store error (if any)

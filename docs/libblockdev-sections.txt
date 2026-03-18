@@ -921,6 +921,7 @@ bd_zfs_pool_destroy
 bd_zfs_pool_export
 bd_zfs_pool_import
 bd_zfs_pool_list
+bd_zfs_pool_list_importable
 bd_zfs_pool_get_info
 bd_zfs_pool_get_vdevs
 bd_zfs_pool_add_vdev

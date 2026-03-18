@@ -669,6 +669,18 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name, c
 BDZFSPoolInfo** bd_zfs_pool_list (GError **error);
 
 /**
+ * bd_zfs_pool_list_importable:
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS pools available for import by parsing ``zpool import`` output.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of #BDZFSPoolInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPoolInfo** bd_zfs_pool_list_importable (GError **error);
+
+/**
  * bd_zfs_pool_get_info:
  * @name: name of the pool to get info for
  * @error: (out) (optional): place to store error (if any)
