@@ -2885,3 +2885,134 @@ gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error
     g_free (volsize_str);
     return success;
 }
+
+/**
+ * bd_zfs_snapshot_promote:
+ * @clone_name: name of the clone dataset to promote
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Promotes a ZFS clone dataset to no longer depend on its origin snapshot.
+ *
+ * Returns: whether the clone was successfully promoted or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_snapshot_promote (const gchar *clone_name, GError **error) {
+    const gchar *argv[] = {"zfs", "promote", clone_name, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_snapshot_hold:
+ * @snapshot: full snapshot name (dataset@snapname) to hold
+ * @tag: user-defined tag for the hold
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Places a hold with the given tag on a ZFS snapshot, preventing it from being destroyed.
+ *
+ * Returns: whether the hold was successfully placed or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_snapshot_hold (const gchar *snapshot, const gchar *tag, GError **error) {
+    const gchar *argv[] = {"zfs", "hold", tag, snapshot, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_snapshot_release:
+ * @snapshot: full snapshot name (dataset@snapname) to release
+ * @tag: user-defined tag to release
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Releases a hold with the given tag from a ZFS snapshot.
+ *
+ * Returns: whether the hold was successfully released or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_snapshot_release (const gchar *snapshot, const gchar *tag, GError **error) {
+    const gchar *argv[] = {"zfs", "release", tag, snapshot, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_dataset_inherit_property:
+ * @name: name of the dataset
+ * @property: name of the property to inherit
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Clears the specified property on a ZFS dataset, causing it to be inherited from its parent.
+ *
+ * Returns: whether the property was successfully inherited or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_inherit_property (const gchar *name, const gchar *property, GError **error) {
+    const gchar *argv[] = {"zfs", "inherit", property, name, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_upgrade:
+ * @name: name of the pool to upgrade
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Upgrades a ZFS pool to the latest on-disk version.
+ *
+ * Returns: whether the pool was successfully upgraded or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_upgrade (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zpool", "upgrade", name, NULL};
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    return bd_utils_exec_and_report_error (argv, NULL, error);
+}
+
+/**
+ * bd_zfs_pool_history:
+ * @name: name of the pool to query history for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Retrieves the command history of a ZFS pool.
+ *
+ * Returns: (transfer full): the raw history output as a string, or %NULL on error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+gchar* bd_zfs_pool_history (const gchar *name, GError **error) {
+    const gchar *argv[] = {"zpool", "history", name, NULL};
+    gchar *output = NULL;
+    gboolean success;
+
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    return output;
+}

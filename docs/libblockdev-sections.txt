@@ -938,6 +938,8 @@ bd_zfs_pool_scrub_status
 bd_zfs_pool_trim_start
 bd_zfs_pool_trim_stop
 bd_zfs_pool_clear
+bd_zfs_pool_upgrade
+bd_zfs_pool_history
 bd_zfs_pool_get_property
 bd_zfs_pool_set_property
 bd_zfs_pool_get_properties
@@ -950,12 +952,16 @@ bd_zfs_dataset_mount
 bd_zfs_dataset_unmount
 bd_zfs_dataset_get_property
 bd_zfs_dataset_set_property
+bd_zfs_dataset_inherit_property
 bd_zfs_dataset_get_properties
 bd_zfs_snapshot_create
 bd_zfs_snapshot_destroy
 bd_zfs_snapshot_list
 bd_zfs_snapshot_rollback
 bd_zfs_snapshot_clone
+bd_zfs_snapshot_promote
+bd_zfs_snapshot_hold
+bd_zfs_snapshot_release
 bd_zfs_bookmark_create
 bd_zfs_bookmark_destroy
 bd_zfs_bookmark_list

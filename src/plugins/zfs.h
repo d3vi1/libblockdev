@@ -223,6 +223,9 @@ gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **e
 
 gboolean bd_zfs_pool_clear (const gchar *name, const gchar *vdev, GError **error);
 
+gboolean bd_zfs_pool_upgrade (const gchar *name, GError **error);
+gchar* bd_zfs_pool_history (const gchar *name, GError **error);
+
 BDZFSPropertyInfo* bd_zfs_pool_get_property (const gchar *name, const gchar *property, GError **error);
 gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
 BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **error);
@@ -237,6 +240,7 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
 gboolean bd_zfs_dataset_unmount (const gchar *name, gboolean force, GError **error);
 BDZFSPropertyInfo* bd_zfs_dataset_get_property (const gchar *name, const gchar *property, GError **error);
 gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
+gboolean bd_zfs_dataset_inherit_property (const gchar *name, const gchar *property, GError **error);
 BDZFSPropertyInfo** bd_zfs_dataset_get_properties (const gchar *name, GError **error);
 
 gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
@@ -246,6 +250,9 @@ BDZFSSnapshotInfo** bd_zfs_snapshot_list (const gchar *dataset, gboolean recursi
 gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean destroy_newer, GError **error);
 gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
                                  const BDExtraArg **extra, GError **error);
+gboolean bd_zfs_snapshot_promote (const gchar *clone_name, GError **error);
+gboolean bd_zfs_snapshot_hold (const gchar *snapshot, const gchar *tag, GError **error);
+gboolean bd_zfs_snapshot_release (const gchar *snapshot, const gchar *tag, GError **error);
 
 gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, GError **error);
 gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error);
