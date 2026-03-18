@@ -2634,6 +2634,117 @@ gboolean bd_fs_udf_check_uuid (const gchar *uuid, GError **error);
  */
 BDFSUdfInfo* bd_fs_udf_get_info (const gchar *device, GError **error);
 
+/**
+ * BDFSZfsInfo:
+ * @label: label (pool name) of the ZFS filesystem
+ * @uuid: uuid (pool GUID) of the ZFS filesystem
+ * @size: size of the ZFS pool in bytes
+ * @free_space: free space in the ZFS pool in bytes
+ */
+typedef struct BDFSZfsInfo {
+    gchar *label;
+    gchar *uuid;
+    guint64 size;
+    guint64 free_space;
+} BDFSZfsInfo;
+
+/**
+ * bd_fs_zfs_info_free: (skip)
+ * @data: (nullable): %BDFSZfsInfo to free
+ *
+ * Frees @data.
+ */
+void bd_fs_zfs_info_free (BDFSZfsInfo *data) {
+    if (data == NULL)
+        return;
+
+    g_free (data->label);
+    g_free (data->uuid);
+    g_free (data);
+}
+
+/**
+ * bd_fs_zfs_info_copy: (skip)
+ * @data: (nullable): %BDFSZfsInfo to copy
+ *
+ * Creates a new copy of @data.
+ */
+BDFSZfsInfo* bd_fs_zfs_info_copy (BDFSZfsInfo *data) {
+    if (data == NULL)
+        return NULL;
+
+    BDFSZfsInfo *ret = g_new0 (BDFSZfsInfo, 1);
+
+    ret->label = g_strdup (data->label);
+    ret->uuid = g_strdup (data->uuid);
+    ret->size = data->size;
+    ret->free_space = data->free_space;
+
+    return ret;
+}
+
+GType bd_fs_zfs_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDFSZfsInfo",
+                                            (GBoxedCopyFunc) bd_fs_zfs_info_copy,
+                                            (GBoxedFreeFunc) bd_fs_zfs_info_free);
+    }
+
+    return type;
+}
+
+/**
+ * bd_fs_zfs_set_label:
+ * @device: a device that is a member of the ZFS pool to rename
+ * @label: the new pool name (label)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Renames the ZFS pool that @device belongs to by exporting and re-importing with the new name.
+ *
+ * Returns: whether the pool was successfully renamed or not
+ *
+ * Tech category: %BD_FS_TECH_ZFS-%BD_FS_TECH_MODE_SET_LABEL
+ */
+gboolean bd_fs_zfs_set_label (const gchar *device, const gchar *label, GError **error);
+
+/**
+ * bd_fs_zfs_check_label:
+ * @label: label to check
+ * @error: (out) (optional): place to store error
+ *
+ * Returns: whether @label is a valid label for a ZFS pool or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
+ */
+gboolean bd_fs_zfs_check_label (const gchar *label, GError **error);
+
+/**
+ * bd_fs_zfs_check_uuid:
+ * @uuid: UUID to check
+ * @error: (out) (optional): place to store error
+ *
+ * Returns: whether @uuid is a valid UUID (pool GUID) for ZFS or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
+ */
+gboolean bd_fs_zfs_check_uuid (const gchar *uuid, GError **error);
+
+/**
+ * bd_fs_zfs_get_info:
+ * @device: the device containing the file system to get info for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: (transfer full): information about the ZFS file system on @device or
+ *                           %NULL in case of error
+ *
+ * Tech category: %BD_FS_TECH_ZFS-%BD_FS_TECH_MODE_QUERY
+ */
+BDFSZfsInfo* bd_fs_zfs_get_info (const gchar *device, GError **error);
+
 typedef enum {
     BD_FS_SUPPORT_SET_LABEL = 1 << 1,
     BD_FS_SUPPORT_SET_UUID = 1 << 2

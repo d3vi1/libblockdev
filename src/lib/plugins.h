@@ -19,6 +19,7 @@ typedef enum {
     BD_PLUGIN_NVDIMM,
     BD_PLUGIN_NVME,
     BD_PLUGIN_SMART,
+    BD_PLUGIN_ZFS,
     BD_PLUGIN_UNDEF
 } BDPlugin;
 

@@ -1,0 +1,1298 @@
+#include <glib.h>
+#include <glib-object.h>
+#include <blockdev/utils.h>
+
+#ifndef BD_ZFS_API
+#define BD_ZFS_API
+
+GQuark bd_zfs_error_quark (void) {
+    return g_quark_from_static_string ("g-bd-zfs-error-quark");
+}
+
+#define BD_ZFS_ERROR bd_zfs_error_quark ()
+typedef enum {
+    BD_ZFS_ERROR_TECH_UNAVAIL,
+    BD_ZFS_ERROR_POOL,
+    BD_ZFS_ERROR_DATASET,
+    BD_ZFS_ERROR_SNAPSHOT,
+    BD_ZFS_ERROR_PARSE,
+    BD_ZFS_ERROR_FAIL,
+    BD_ZFS_ERROR_NOEXIST,
+    BD_ZFS_ERROR_BUSY,
+    BD_ZFS_ERROR_ENCRYPT,
+} BDZFSError;
+
+typedef enum {
+    BD_ZFS_TECH_POOL = 0,
+    BD_ZFS_TECH_VDEV,
+    BD_ZFS_TECH_DATASET,
+    BD_ZFS_TECH_SNAPSHOT,
+    BD_ZFS_TECH_ENCRYPTION,
+    BD_ZFS_TECH_ZVOL,
+    BD_ZFS_TECH_MAINTENANCE,
+} BDZFSTech;
+
+typedef enum {
+    BD_ZFS_TECH_MODE_CREATE = 1 << 0,
+    BD_ZFS_TECH_MODE_DELETE = 1 << 1,
+    BD_ZFS_TECH_MODE_MODIFY = 1 << 2,
+    BD_ZFS_TECH_MODE_QUERY  = 1 << 3,
+} BDZFSTechMode;
+
+typedef enum {
+    BD_ZFS_POOL_STATE_ONLINE,
+    BD_ZFS_POOL_STATE_DEGRADED,
+    BD_ZFS_POOL_STATE_FAULTED,
+    BD_ZFS_POOL_STATE_OFFLINE,
+    BD_ZFS_POOL_STATE_REMOVED,
+    BD_ZFS_POOL_STATE_UNAVAIL,
+    BD_ZFS_POOL_STATE_UNKNOWN,
+} BDZFSPoolState;
+
+typedef enum {
+    BD_ZFS_VDEV_TYPE_DISK,
+    BD_ZFS_VDEV_TYPE_FILE,
+    BD_ZFS_VDEV_TYPE_MIRROR,
+    BD_ZFS_VDEV_TYPE_RAIDZ1,
+    BD_ZFS_VDEV_TYPE_RAIDZ2,
+    BD_ZFS_VDEV_TYPE_RAIDZ3,
+    BD_ZFS_VDEV_TYPE_DRAID,
+    BD_ZFS_VDEV_TYPE_SPARE,
+    BD_ZFS_VDEV_TYPE_LOG,
+    BD_ZFS_VDEV_TYPE_CACHE,
+    BD_ZFS_VDEV_TYPE_SPECIAL,
+    BD_ZFS_VDEV_TYPE_DEDUP,
+    BD_ZFS_VDEV_TYPE_ROOT,
+    BD_ZFS_VDEV_TYPE_UNKNOWN,
+} BDZFSVdevType;
+
+typedef enum {
+    BD_ZFS_VDEV_STATE_ONLINE,
+    BD_ZFS_VDEV_STATE_DEGRADED,
+    BD_ZFS_VDEV_STATE_FAULTED,
+    BD_ZFS_VDEV_STATE_OFFLINE,
+    BD_ZFS_VDEV_STATE_REMOVED,
+    BD_ZFS_VDEV_STATE_UNAVAIL,
+    BD_ZFS_VDEV_STATE_UNKNOWN,
+} BDZFSVdevState;
+
+typedef enum {
+    BD_ZFS_DATASET_TYPE_FILESYSTEM,
+    BD_ZFS_DATASET_TYPE_VOLUME,
+    BD_ZFS_DATASET_TYPE_SNAPSHOT,
+    BD_ZFS_DATASET_TYPE_BOOKMARK,
+} BDZFSDatasetType;
+
+typedef enum {
+    BD_ZFS_KEY_STATUS_NONE,
+    BD_ZFS_KEY_STATUS_AVAILABLE,
+    BD_ZFS_KEY_STATUS_UNAVAILABLE,
+} BDZFSKeyStatus;
+
+typedef enum {
+    BD_ZFS_SCRUB_STATE_NONE,
+    BD_ZFS_SCRUB_STATE_SCANNING,
+    BD_ZFS_SCRUB_STATE_FINISHED,
+    BD_ZFS_SCRUB_STATE_CANCELED,
+    BD_ZFS_SCRUB_STATE_PAUSED,
+} BDZFSScrubState;
+
+
+#define BD_ZFS_TYPE_POOL_INFO (bd_zfs_pool_info_get_type ())
+GType bd_zfs_pool_info_get_type();
+
+/**
+ * BDZFSPoolInfo:
+ * @name: name of the pool
+ * @guid: GUID of the pool
+ * @state: state of the pool
+ * @size: total size of the pool in bytes
+ * @allocated: allocated space in bytes
+ * @free: free space in bytes
+ * @fragmentation: fragmentation percentage (0-100)
+ * @dedup_ratio: deduplication ratio
+ * @readonly: whether the pool is read-only
+ * @altroot: alternate root directory or %NULL
+ * @ashift: ashift value for the pool
+ */
+typedef struct BDZFSPoolInfo {
+    gchar *name;
+    gchar *guid;
+    BDZFSPoolState state;
+    guint64 size;
+    guint64 allocated;
+    guint64 free;
+    guint64 fragmentation;
+    gdouble dedup_ratio;
+    gboolean readonly;
+    gchar *altroot;
+    gchar *ashift;
+} BDZFSPoolInfo;
+
+/**
+ * bd_zfs_pool_info_copy: (skip)
+ * @info: (nullable): %BDZFSPoolInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSPoolInfo* bd_zfs_pool_info_copy (BDZFSPoolInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSPoolInfo *new_info = g_new0 (BDZFSPoolInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->guid = g_strdup (info->guid);
+    new_info->state = info->state;
+    new_info->size = info->size;
+    new_info->allocated = info->allocated;
+    new_info->free = info->free;
+    new_info->fragmentation = info->fragmentation;
+    new_info->dedup_ratio = info->dedup_ratio;
+    new_info->readonly = info->readonly;
+    new_info->altroot = g_strdup (info->altroot);
+    new_info->ashift = g_strdup (info->ashift);
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_pool_info_free: (skip)
+ * @info: (nullable): %BDZFSPoolInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_pool_info_free (BDZFSPoolInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
+    g_free (info->guid);
+    g_free (info->altroot);
+    g_free (info->ashift);
+    g_free (info);
+}
+
+GType bd_zfs_pool_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSPoolInfo",
+                                            (GBoxedCopyFunc) bd_zfs_pool_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_pool_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_VDEV_INFO (bd_zfs_vdev_info_get_type ())
+GType bd_zfs_vdev_info_get_type();
+
+/**
+ * BDZFSVdevInfo:
+ * @path: path of the vdev device (or name for virtual vdevs)
+ * @type: type of the vdev
+ * @state: state of the vdev
+ * @alloc: allocated space in bytes
+ * @space: total space in bytes
+ * @read_errors: number of read errors
+ * @write_errors: number of write errors
+ * @checksum_errors: number of checksum errors
+ * @children: (nullable) (array zero-terminated=1): child vdevs or %NULL for leaf
+ */
+typedef struct BDZFSVdevInfo {
+    gchar *path;
+    BDZFSVdevType type;
+    BDZFSVdevState state;
+    guint64 alloc;
+    guint64 space;
+    guint64 read_errors;
+    guint64 write_errors;
+    guint64 checksum_errors;
+    struct BDZFSVdevInfo **children;
+} BDZFSVdevInfo;
+
+/**
+ * bd_zfs_vdev_info_copy: (skip)
+ * @info: (nullable): %BDZFSVdevInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSVdevInfo* bd_zfs_vdev_info_copy (BDZFSVdevInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSVdevInfo *new_info = g_new0 (BDZFSVdevInfo, 1);
+
+    new_info->path = g_strdup (info->path);
+    new_info->type = info->type;
+    new_info->state = info->state;
+    new_info->alloc = info->alloc;
+    new_info->space = info->space;
+    new_info->read_errors = info->read_errors;
+    new_info->write_errors = info->write_errors;
+    new_info->checksum_errors = info->checksum_errors;
+
+    if (info->children) {
+        guint64 count = 0;
+        for (BDZFSVdevInfo **child = info->children; *child != NULL; child++)
+            count++;
+        new_info->children = g_new0 (BDZFSVdevInfo *, count + 1);
+        for (guint64 i = 0; i < count; i++)
+            new_info->children[i] = bd_zfs_vdev_info_copy (info->children[i]);
+        new_info->children[count] = NULL;
+    } else {
+        new_info->children = NULL;
+    }
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_vdev_info_free: (skip)
+ * @info: (nullable): %BDZFSVdevInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_vdev_info_free (BDZFSVdevInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->path);
+
+    if (info->children) {
+        for (BDZFSVdevInfo **child = info->children; *child != NULL; child++)
+            bd_zfs_vdev_info_free (*child);
+        g_free (info->children);
+    }
+
+    g_free (info);
+}
+
+GType bd_zfs_vdev_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSVdevInfo",
+                                            (GBoxedCopyFunc) bd_zfs_vdev_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_vdev_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_DATASET_INFO (bd_zfs_dataset_info_get_type ())
+GType bd_zfs_dataset_info_get_type();
+
+/**
+ * BDZFSDatasetInfo:
+ * @name: name of the dataset
+ * @type: type of the dataset
+ * @mountpoint: mountpoint of the dataset or %NULL
+ * @origin: origin snapshot for clones or %NULL
+ * @used: used space in bytes
+ * @available: available space in bytes
+ * @referenced: referenced space in bytes
+ * @compression: compression algorithm
+ * @encryption: encryption algorithm or "off"
+ * @key_status: encryption key status
+ * @mounted: whether the dataset is mounted
+ */
+typedef struct BDZFSDatasetInfo {
+    gchar *name;
+    BDZFSDatasetType type;
+    gchar *mountpoint;
+    gchar *origin;
+    guint64 used;
+    guint64 available;
+    guint64 referenced;
+    gchar *compression;
+    gchar *encryption;
+    BDZFSKeyStatus key_status;
+    gboolean mounted;
+} BDZFSDatasetInfo;
+
+/**
+ * bd_zfs_dataset_info_copy: (skip)
+ * @info: (nullable): %BDZFSDatasetInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSDatasetInfo* bd_zfs_dataset_info_copy (BDZFSDatasetInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSDatasetInfo *new_info = g_new0 (BDZFSDatasetInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->type = info->type;
+    new_info->mountpoint = g_strdup (info->mountpoint);
+    new_info->origin = g_strdup (info->origin);
+    new_info->used = info->used;
+    new_info->available = info->available;
+    new_info->referenced = info->referenced;
+    new_info->compression = g_strdup (info->compression);
+    new_info->encryption = g_strdup (info->encryption);
+    new_info->key_status = info->key_status;
+    new_info->mounted = info->mounted;
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_dataset_info_free: (skip)
+ * @info: (nullable): %BDZFSDatasetInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_dataset_info_free (BDZFSDatasetInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
+    g_free (info->mountpoint);
+    g_free (info->origin);
+    g_free (info->compression);
+    g_free (info->encryption);
+    g_free (info);
+}
+
+GType bd_zfs_dataset_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSDatasetInfo",
+                                            (GBoxedCopyFunc) bd_zfs_dataset_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_dataset_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_SNAPSHOT_INFO (bd_zfs_snapshot_info_get_type ())
+GType bd_zfs_snapshot_info_get_type();
+
+/**
+ * BDZFSSnapshotInfo:
+ * @name: full name of the snapshot (pool/dataset@snap)
+ * @dataset: name of the parent dataset
+ * @used: used space in bytes
+ * @referenced: referenced space in bytes
+ * @creation: creation timestamp string
+ */
+typedef struct BDZFSSnapshotInfo {
+    gchar *name;
+    gchar *dataset;
+    guint64 used;
+    guint64 referenced;
+    gchar *creation;
+} BDZFSSnapshotInfo;
+
+/**
+ * bd_zfs_snapshot_info_copy: (skip)
+ * @info: (nullable): %BDZFSSnapshotInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSSnapshotInfo* bd_zfs_snapshot_info_copy (BDZFSSnapshotInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSSnapshotInfo *new_info = g_new0 (BDZFSSnapshotInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->dataset = g_strdup (info->dataset);
+    new_info->used = info->used;
+    new_info->referenced = info->referenced;
+    new_info->creation = g_strdup (info->creation);
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_snapshot_info_free: (skip)
+ * @info: (nullable): %BDZFSSnapshotInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_snapshot_info_free (BDZFSSnapshotInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
+    g_free (info->dataset);
+    g_free (info->creation);
+    g_free (info);
+}
+
+GType bd_zfs_snapshot_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSSnapshotInfo",
+                                            (GBoxedCopyFunc) bd_zfs_snapshot_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_snapshot_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_PROPERTY_INFO (bd_zfs_property_info_get_type ())
+GType bd_zfs_property_info_get_type();
+
+/**
+ * BDZFSPropertyInfo:
+ * @name: name of the property
+ * @value: value of the property
+ * @source: source of the property (e.g. "local", "default", "inherited")
+ */
+typedef struct BDZFSPropertyInfo {
+    gchar *name;
+    gchar *value;
+    gchar *source;
+} BDZFSPropertyInfo;
+
+/**
+ * bd_zfs_property_info_copy: (skip)
+ * @info: (nullable): %BDZFSPropertyInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSPropertyInfo* bd_zfs_property_info_copy (BDZFSPropertyInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSPropertyInfo *new_info = g_new0 (BDZFSPropertyInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->value = g_strdup (info->value);
+    new_info->source = g_strdup (info->source);
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_property_info_free: (skip)
+ * @info: (nullable): %BDZFSPropertyInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_property_info_free (BDZFSPropertyInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
+    g_free (info->value);
+    g_free (info->source);
+    g_free (info);
+}
+
+GType bd_zfs_property_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSPropertyInfo",
+                                            (GBoxedCopyFunc) bd_zfs_property_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_property_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_SCRUB_INFO (bd_zfs_scrub_info_get_type ())
+GType bd_zfs_scrub_info_get_type();
+
+/**
+ * BDZFSScrubInfo:
+ * @state: state of the scrub operation
+ * @total_bytes: total bytes to scrub
+ * @scanned_bytes: bytes scanned so far
+ * @issued_bytes: bytes issued (repaired) so far
+ * @errors: number of errors found
+ * @percent_done: percentage of scrub completed (0.0-100.0)
+ * @start_time: start time of the scrub
+ * @end_time: end time of the scrub or %NULL if still running
+ */
+typedef struct BDZFSScrubInfo {
+    BDZFSScrubState state;
+    guint64 total_bytes;
+    guint64 scanned_bytes;
+    guint64 issued_bytes;
+    guint64 errors;
+    gdouble percent_done;
+    gchar *start_time;
+    gchar *end_time;
+} BDZFSScrubInfo;
+
+/**
+ * bd_zfs_scrub_info_copy: (skip)
+ * @info: (nullable): %BDZFSScrubInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSScrubInfo* bd_zfs_scrub_info_copy (BDZFSScrubInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSScrubInfo *new_info = g_new0 (BDZFSScrubInfo, 1);
+
+    new_info->state = info->state;
+    new_info->total_bytes = info->total_bytes;
+    new_info->scanned_bytes = info->scanned_bytes;
+    new_info->issued_bytes = info->issued_bytes;
+    new_info->errors = info->errors;
+    new_info->percent_done = info->percent_done;
+    new_info->start_time = g_strdup (info->start_time);
+    new_info->end_time = g_strdup (info->end_time);
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_scrub_info_free: (skip)
+ * @info: (nullable): %BDZFSScrubInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_scrub_info_free (BDZFSScrubInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->start_time);
+    g_free (info->end_time);
+    g_free (info);
+}
+
+GType bd_zfs_scrub_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSScrubInfo",
+                                            (GBoxedCopyFunc) bd_zfs_scrub_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_scrub_info_free);
+    }
+
+    return type;
+}
+
+
+/**
+ * bd_zfs_is_tech_avail:
+ * @tech: the queried tech
+ * @mode: a bit mask of queried modes of operation (#BDZFSTechMode) for @tech
+ * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
+ *
+ * Returns: whether the @tech-@mode combination is available -- both
+ *          require the ``zpool`` and ``zfs`` utilities
+ *
+ * Tech category: always available
+ */
+gboolean bd_zfs_is_tech_avail (BDZFSTech tech, guint64 mode, GError **error);
+
+/**
+ * bd_zfs_pool_create:
+ * @name: name of the pool to create
+ * @vdevs: (array zero-terminated=1): NULL-terminated array of device paths
+ * @raid_level: (nullable): vdev type ("mirror", "raidz", "raidz2", "raidz3") or %NULL for stripe
+ * @extra: (nullable) (array zero-terminated=1): extra options for pool creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS pool with the given name and vdevs.
+ *
+ * Returns: whether the pool was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar *raid_level, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_pool_destroy:
+ * @name: name of the pool to destroy
+ * @force: whether to force the destruction
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys the ZFS pool with the given name.
+ *
+ * Returns: whether the pool was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_pool_destroy (const gchar *name, gboolean force, GError **error);
+
+/**
+ * bd_zfs_pool_export:
+ * @name: name of the pool to export
+ * @force: whether to force the export
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Exports the ZFS pool with the given name.
+ *
+ * Returns: whether the pool was successfully exported or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_export (const gchar *name, gboolean force, GError **error);
+
+/**
+ * bd_zfs_pool_import:
+ * @name_or_guid: name or GUID of the pool to import
+ * @new_name: (nullable): new name for the pool or %NULL to keep the original
+ * @search_dirs: (nullable) (array zero-terminated=1): directories to search for devices or %NULL
+ * @force: whether to force the import
+ * @extra: (nullable) (array zero-terminated=1): extra options for pool import
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Imports a ZFS pool by name or GUID, optionally renaming it.
+ *
+ * Returns: whether the pool was successfully imported or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name, const gchar **search_dirs, gboolean force, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_pool_list:
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists all imported ZFS pools with their properties.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPoolInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPoolInfo** bd_zfs_pool_list (GError **error);
+
+/**
+ * bd_zfs_pool_get_info:
+ * @name: name of the pool to get info for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets information about a single ZFS pool.
+ *
+ * Returns: (transfer full): a #BDZFSPoolInfo for the given pool or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPoolInfo* bd_zfs_pool_get_info (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_get_vdevs:
+ * @name: name of the pool to get vdev tree for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets the vdev tree for a ZFS pool by parsing ``zpool status`` output.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          top-level #BDZFSVdevInfo (each may have recursive children) or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_add_vdev:
+ * @name: name of the pool to add vdevs to
+ * @vdevs: (array zero-terminated=1): NULL-terminated array of device paths to add
+ * @raid_level: (nullable): vdev type ("mirror", "raidz", "raidz2", "raidz3") or %NULL for stripe
+ * @extra: (nullable) (array zero-terminated=1): extra options for the operation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Adds one or more vdevs to an existing ZFS pool.
+ *
+ * Returns: whether the vdevs were successfully added or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gchar *raid_level, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_pool_remove_vdev:
+ * @name: name of the pool to remove a vdev from
+ * @vdev: the vdev to remove
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Removes a vdev from a ZFS pool.
+ *
+ * Returns: whether the vdev was successfully removed or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_remove_vdev (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_attach:
+ * @name: name of the pool
+ * @existing_vdev: the existing vdev to attach to
+ * @new_vdev: the new vdev to attach
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Attaches a new vdev to an existing vdev in a ZFS pool (creating or extending a mirror).
+ *
+ * Returns: whether the vdev was successfully attached or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_attach (const gchar *name, const gchar *existing_vdev, const gchar *new_vdev, GError **error);
+
+/**
+ * bd_zfs_pool_detach:
+ * @name: name of the pool
+ * @vdev: the vdev to detach
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Detaches a vdev from a ZFS pool mirror.
+ *
+ * Returns: whether the vdev was successfully detached or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_detach (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_replace:
+ * @name: name of the pool
+ * @old_vdev: the vdev to replace
+ * @new_vdev: the replacement vdev
+ * @force: whether to force the replacement
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Replaces a vdev in a ZFS pool with a new device.
+ *
+ * Returns: whether the vdev was successfully replaced or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_replace (const gchar *name, const gchar *old_vdev, const gchar *new_vdev, gboolean force, GError **error);
+
+/**
+ * bd_zfs_pool_online:
+ * @name: name of the pool
+ * @vdev: the vdev to bring online
+ * @expand: whether to expand the device to use all available space
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Brings a vdev in a ZFS pool online.
+ *
+ * Returns: whether the vdev was successfully brought online or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_online (const gchar *name, const gchar *vdev, gboolean expand, GError **error);
+
+/**
+ * bd_zfs_pool_offline:
+ * @name: name of the pool
+ * @vdev: the vdev to take offline
+ * @temporary: whether the offline state is temporary (reverts on reboot)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Takes a vdev in a ZFS pool offline.
+ *
+ * Returns: whether the vdev was successfully taken offline or not
+ *
+ * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean temporary, GError **error);
+
+/**
+ * bd_zfs_pool_scrub_start:
+ * @name: name of the pool to scrub
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Starts a scrub on the ZFS pool.
+ *
+ * Returns: whether the scrub was successfully started or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_scrub_start (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_scrub_stop:
+ * @name: name of the pool to stop scrubbing
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Stops a running scrub on the ZFS pool.
+ *
+ * Returns: whether the scrub was successfully stopped or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_scrub_stop (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_scrub_pause:
+ * @name: name of the pool to pause scrubbing
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Pauses a running scrub on the ZFS pool.
+ *
+ * Returns: whether the scrub was successfully paused or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_scrub_pause (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_scrub_status:
+ * @name: name of the pool to get scrub status for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets the scrub status for a ZFS pool by parsing ``zpool status`` output.
+ *
+ * Returns: (transfer full): a #BDZFSScrubInfo for the pool or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSScrubInfo* bd_zfs_pool_scrub_status (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_pool_trim_start:
+ * @name: name of the pool to trim
+ * @vdev: (nullable): specific vdev to trim or %NULL to trim all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Starts a TRIM operation on the ZFS pool or a specific vdev.
+ *
+ * Returns: whether the trim was successfully started or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_trim_start (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_trim_stop:
+ * @name: name of the pool to stop trimming
+ * @vdev: (nullable): specific vdev to stop trimming or %NULL for all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Stops a TRIM operation on the ZFS pool or a specific vdev.
+ *
+ * Returns: whether the trim was successfully stopped or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_clear:
+ * @name: name of the pool to clear errors on
+ * @vdev: (nullable): specific vdev to clear errors on or %NULL for all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Clears device errors in a ZFS pool.
+ *
+ * Returns: whether the errors were successfully cleared or not
+ *
+ * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_clear (const gchar *name, const gchar *vdev, GError **error);
+
+/**
+ * bd_zfs_pool_get_property:
+ * @name: name of the pool
+ * @property: name of the property to get
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets a single property from a ZFS pool.
+ *
+ * Returns: (transfer full): a #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo* bd_zfs_pool_get_property (const gchar *name, const gchar *property, GError **error);
+
+/**
+ * bd_zfs_pool_set_property:
+ * @name: name of the pool
+ * @property: name of the property to set
+ * @value: value to set the property to
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Sets a property on a ZFS pool.
+ *
+ * Returns: whether the property was successfully set or not
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
+
+/**
+ * bd_zfs_pool_get_properties:
+ * @name: name of the pool
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets all properties from a ZFS pool.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_dataset_create:
+ * @name: name of the dataset to create (e.g. "pool/dataset")
+ * @extra: (nullable) (array zero-terminated=1): extra options for dataset creation (e.g. -o property=value)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS dataset with the given name.
+ *
+ * Returns: whether the dataset was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_dataset_destroy:
+ * @name: name of the dataset to destroy
+ * @recursive: whether to recursively destroy all children
+ * @force: whether to force the destruction of dependents
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys the ZFS dataset with the given name.
+ *
+ * Returns: whether the dataset was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_dataset_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error);
+
+/**
+ * bd_zfs_dataset_list:
+ * @pool_or_parent: (nullable): pool or parent dataset to list datasets for, or %NULL for all
+ * @recursive: whether to list datasets recursively
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS datasets under the given pool or parent dataset.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSDatasetInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean recursive, GError **error);
+
+/**
+ * bd_zfs_dataset_get_info:
+ * @name: name of the dataset to get info for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets information about a single ZFS dataset.
+ *
+ * Returns: (transfer full): a #BDZFSDatasetInfo for the given dataset or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSDatasetInfo* bd_zfs_dataset_get_info (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_dataset_rename:
+ * @name: current name of the dataset
+ * @new_name: new name for the dataset
+ * @create_parent: whether to create parent datasets if they do not exist
+ * @force: whether to force unmount any filesystems that need to be unmounted
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Renames a ZFS dataset.
+ *
+ * Returns: whether the dataset was successfully renamed or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_rename (const gchar *name, const gchar *new_name, gboolean create_parent, gboolean force, GError **error);
+
+/**
+ * bd_zfs_dataset_mount:
+ * @name: name of the dataset to mount
+ * @mountpoint: (nullable): mountpoint to use or %NULL to use the dataset's mountpoint property
+ * @extra: (nullable) (array zero-terminated=1): extra mount options
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Mounts a ZFS dataset. If @mountpoint is specified, it will be used as the mountpoint override.
+ *
+ * Returns: whether the dataset was successfully mounted or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_dataset_unmount:
+ * @name: name of the dataset to unmount
+ * @force: whether to force the unmount
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Unmounts a ZFS dataset.
+ *
+ * Returns: whether the dataset was successfully unmounted or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_unmount (const gchar *name, gboolean force, GError **error);
+
+/**
+ * bd_zfs_dataset_get_property:
+ * @name: name of the dataset
+ * @property: name of the property to get
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets a single property from a ZFS dataset.
+ *
+ * Returns: (transfer full): a #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo* bd_zfs_dataset_get_property (const gchar *name, const gchar *property, GError **error);
+
+/**
+ * bd_zfs_dataset_set_property:
+ * @name: name of the dataset
+ * @property: name of the property to set
+ * @value: value to set the property to
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Sets a property on a ZFS dataset.
+ *
+ * Returns: whether the property was successfully set or not
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error);
+
+/**
+ * bd_zfs_dataset_get_properties:
+ * @name: name of the dataset
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Gets all properties from a ZFS dataset.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
+ *          #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo** bd_zfs_dataset_get_properties (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_snapshot_create:
+ * @name: full snapshot name (dataset@snapname)
+ * @recursive: whether to recursively snapshot all descendant datasets
+ * @extra: (nullable) (array zero-terminated=1): extra options for snapshot creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS snapshot.
+ *
+ * Returns: whether the snapshot was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_snapshot_destroy:
+ * @name: full snapshot name (dataset@snapname)
+ * @recursive: whether to recursively destroy all dependent snapshots
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys a ZFS snapshot.
+ *
+ * Returns: whether the snapshot was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_snapshot_destroy (const gchar *name, gboolean recursive, GError **error);
+
+/**
+ * bd_zfs_snapshot_list:
+ * @dataset: (nullable): dataset to list snapshots for, or %NULL for all
+ * @recursive: whether to list snapshots recursively
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS snapshots for the given dataset or all snapshots.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of #BDZFSSnapshotInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSSnapshotInfo** bd_zfs_snapshot_list (const gchar *dataset, gboolean recursive, GError **error);
+
+/**
+ * bd_zfs_snapshot_rollback:
+ * @name: full snapshot name (dataset@snapname)
+ * @force: whether to force unmount of any clones
+ * @destroy_newer: whether to destroy any snapshots more recent than the given one
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Rolls back a ZFS dataset to the given snapshot.
+ *
+ * Returns: whether the rollback was successful or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean destroy_newer, GError **error);
+
+/**
+ * bd_zfs_snapshot_clone:
+ * @snapshot: full snapshot name (dataset@snapname) to clone from
+ * @clone_name: name for the new clone dataset
+ * @extra: (nullable) (array zero-terminated=1): extra options for clone creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a clone dataset from a ZFS snapshot.
+ *
+ * Returns: whether the clone was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_bookmark_create:
+ * @snapshot: full snapshot name (dataset@snapname) to bookmark
+ * @bookmark: full bookmark name (dataset#bookmark)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a ZFS bookmark from an existing snapshot.
+ *
+ * Returns: whether the bookmark was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, GError **error);
+
+/**
+ * bd_zfs_bookmark_destroy:
+ * @name: full bookmark name (dataset#bookmark)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys a ZFS bookmark.
+ *
+ * Returns: whether the bookmark was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error);
+
+/**
+ * bd_zfs_bookmark_list:
+ * @dataset: (nullable): dataset to list bookmarks for, or %NULL for all
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Lists ZFS bookmarks for the given dataset or all bookmarks.
+ *
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of #BDZFSPropertyInfo or %NULL in case of error
+ *
+ * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error);
+
+/**
+ * bd_zfs_encryption_load_key:
+ * @dataset: name of the encrypted dataset to load the key for
+ * @key_location: (nullable): key location URI (e.g. "file:///path/to/keyfile") or %NULL to use the dataset's keylocation property
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Loads the encryption key for a ZFS dataset. If @key_location is %NULL, the dataset's own keylocation property is used. If @key_location starts with "file://", it is passed directly as the key location. Otherwise the value is treated as a passphrase and piped to ``zfs load-key`` via stdin.
+ *
+ * Returns: whether the key was successfully loaded or not
+ *
+ * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_encryption_load_key (const gchar *dataset, const gchar *key_location, GError **error);
+
+/**
+ * bd_zfs_encryption_unload_key:
+ * @dataset: name of the encrypted dataset to unload the key for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Unloads the encryption key for a ZFS dataset, making it inaccessible until the key is loaded again.
+ *
+ * Returns: whether the key was successfully unloaded or not
+ *
+ * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error);
+
+/**
+ * bd_zfs_encryption_change_key:
+ * @dataset: name of the encrypted dataset to change the key for
+ * @new_key_location: (nullable): new key location URI (e.g. "file:///path/to/keyfile") or %NULL to inherit from parent
+ * @extra: (nullable) (array zero-terminated=1): extra options for the key change operation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Changes the encryption key or key location for a ZFS dataset. If @new_key_location is %NULL, the key location is inherited from the parent dataset. If @new_key_location starts with "file://", it is passed as the new key location.
+ *
+ * Returns: whether the key was successfully changed or not
+ *
+ * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_key_location, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_encryption_key_status:
+ * @dataset: name of the dataset to query key status for
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Queries the encryption key status of a ZFS dataset by reading the keystatus property.
+ *
+ * Returns: the #BDZFSKeyStatus of the dataset, or %BD_ZFS_KEY_STATUS_NONE on error
+ *
+ * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_QUERY
+ */
+BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **error);
+
+/**
+ * bd_zfs_zvol_create:
+ * @name: (not nullable): name of the zvol to create (e.g. "pool/zvol")
+ * @size: size of the zvol in bytes
+ * @sparse: whether to create a sparse (thin provisioned) zvol
+ * @extra: (nullable) (array zero-terminated=1): extra options for zvol creation
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Creates a new ZFS zvol (block volume).
+ *
+ * Returns: whether the zvol was successfully created or not
+ *
+ * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_CREATE
+ */
+gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, const BDExtraArg **extra, GError **error);
+
+/**
+ * bd_zfs_zvol_destroy:
+ * @name: (not nullable): name of the zvol to destroy
+ * @recursive: whether to recursively destroy all dependents
+ * @force: whether to force the destruction
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Destroys a ZFS zvol (block volume).
+ *
+ * Returns: whether the zvol was successfully destroyed or not
+ *
+ * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_DELETE
+ */
+gboolean bd_zfs_zvol_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error);
+
+/**
+ * bd_zfs_zvol_resize:
+ * @name: (not nullable): name of the zvol to resize
+ * @new_size: new size for the zvol in bytes
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Resizes a ZFS zvol (block volume).
+ *
+ * Returns: whether the zvol was successfully resized or not
+ *
+ * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_MODIFY
+ */
+gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error);
+
+#endif /* BD_ZFS_API */

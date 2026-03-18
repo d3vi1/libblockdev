@@ -18,6 +18,7 @@
 %define with_nvme @WITH_NVME@
 %define with_smart @WITH_SMART@
 %define with_smartmontools @WITH_SMARTMONTOOLS@
+%define with_zfs @WITH_ZFS@
 
 # btrfs is not available on RHEL > 7
 %if 0%{?rhel} > 7 || %{with_btrfs} == 0
@@ -27,6 +28,9 @@
 
 %if %{with_btrfs} != 1
 %define btrfs_copts --without-btrfs
+%endif
+%if %{with_zfs} != 1
+%define zfs_copts --without-zfs
 %endif
 %if %{with_crypto} != 1
 %define crypto_copts --without-crypto
@@ -82,7 +86,7 @@
 %define smartmontools_copts --without-smartmontools
 %endif
 
-%define configure_opts %{?python3_copts} %{?lvm_dbus_copts} %{?btrfs_copts} %{?crypto_copts} %{?dm_copts} %{?loop_copts} %{?lvm_copts} %{?lvm_dbus_copts} %{?mdraid_copts} %{?mpath_copts} %{?swap_copts} %{?part_copts} %{?fs_copts} %{?nvdimm_copts} %{?tools_copts} %{?gi_copts} %{?nvme_copts} %{?smart_copts} %{?smartmontools_copts}
+%define configure_opts %{?python3_copts} %{?lvm_dbus_copts} %{?btrfs_copts} %{?crypto_copts} %{?dm_copts} %{?loop_copts} %{?lvm_copts} %{?lvm_dbus_copts} %{?mdraid_copts} %{?mpath_copts} %{?swap_copts} %{?part_copts} %{?fs_copts} %{?nvdimm_copts} %{?tools_copts} %{?gi_copts} %{?nvme_copts} %{?smart_copts} %{?smartmontools_copts} %{?zfs_copts}
 
 Name:        libblockdev
 Version:     3.4.0
@@ -526,6 +530,26 @@ This package contains header files and pkg-config files needed for development
 with the libblockdev-swap plugin/library.
 %endif
 
+%if %{with_zfs}
+%package zfs
+Summary:     The ZFS plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} = %{version}-%{release}
+
+%description zfs
+The libblockdev library plugin (and in the same time a standalone library)
+providing the ZFS-related functionality.
+
+%package zfs-devel
+Summary:     Development files for the libblockdev-zfs plugin/library
+Requires: %{name}-zfs%{?_isa} = %{version}-%{release}
+Requires: glib2-devel
+Requires: %{name}-utils-devel%{?_isa} = %{version}-%{release}
+
+%description zfs-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-zfs plugin/library.
+%endif
+
 %if %{with_tools}
 %package tools
 Summary:    Various nice tools based on libblockdev
@@ -623,6 +647,10 @@ Requires: %{name}-smartmontools%{?_isa} = %{version}-%{release}
 Requires: %{name}-swap%{?_isa} = %{version}-%{release}
 %endif
 
+%if %{with_zfs}
+Requires: %{name}-zfs%{?_isa} = %{version}-%{release}
+%endif
+
 %ifarch s390 s390x
 Requires: %{name}-s390%{?_isa} = %{version}-%{release}
 %endif
@@ -717,6 +745,10 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 
 %if %{with_swap}
 %ldconfig_scriptlets swap
+%endif
+
+%if %{with_zfs}
+%ldconfig_scriptlets zfs
 %endif
 
 %ifarch s390 s390x
@@ -936,6 +968,17 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %{_libdir}/libbd_swap.so
 %dir %{_includedir}/blockdev
 %{_includedir}/blockdev/swap.h
+%endif
+
+
+%if %{with_zfs}
+%files zfs
+%{_libdir}/libbd_zfs.so.*
+
+%files zfs-devel
+%{_libdir}/libbd_zfs.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/zfs.h
 %endif
 
 
