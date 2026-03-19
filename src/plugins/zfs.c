@@ -239,6 +239,33 @@ static const UtilDep deps[DEPS_LAST] = {
 };
 
 /**
+ * validate_name_not_option:
+ * @name: identifier to validate
+ * @param_name: human-readable parameter name for error messages
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Validates that @name is not NULL, not empty, and does not start with '-'.
+ * Identifiers starting with '-' could be interpreted as command-line options
+ * when passed to zpool/zfs CLI tools.
+ *
+ * Returns: %TRUE if valid, %FALSE on error
+ */
+static gboolean
+validate_name_not_option (const gchar *name, const gchar *param_name, GError **error) {
+    if (!name || *name == '\0') {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                     "%s cannot be NULL or empty", param_name);
+        return FALSE;
+    }
+    if (*name == '-') {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                     "%s cannot start with '-': %s", param_name, name);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+/**
  * bd_zfs_init:
  *
  * Initializes the plugin. **This function is called automatically by the
@@ -414,12 +441,10 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
     gboolean success = FALSE;
     const gchar **vdev_p = NULL;
 
-    if (!name || *name == '\0') {
-        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+    if (!validate_name_not_option (name, "Pool name", error))
         return FALSE;
-    }
 
-    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+    if (raid_level && !validate_name_not_option (raid_level, "RAID level", error))
         return FALSE;
 
     if (!vdevs || !vdevs[0]) {
@@ -427,15 +452,22 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
         return FALSE;
     }
 
-    for (vdev_p = vdevs; *vdev_p != NULL; vdev_p++)
+    for (vdev_p = vdevs; *vdev_p != NULL; vdev_p++) {
+        if (!validate_name_not_option (*vdev_p, "Vdev", error))
+            return FALSE;
         num_vdevs++;
+    }
 
-    /* zpool create [-f] <name> [raid_level] <vdev1> ... <vdevN> NULL */
-    num_args = 3 + num_vdevs + (raid_level ? 1 : 0) + 1;
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    /* zpool create -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
+    num_args = 4 + num_vdevs + (raid_level ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "create";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     if (raid_level)
         argv[next_arg++] = raid_level;
@@ -461,13 +493,11 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
  * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_DELETE
  */
 gboolean bd_zfs_pool_destroy (const gchar *name, gboolean force, GError **error) {
-    const gchar *argv[5] = {NULL};
+    const gchar *argv[6] = {NULL};
     guint next_arg = 0;
 
-    if (!name || *name == '\0') {
-        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+    if (!validate_name_not_option (name, "Pool name", error))
         return FALSE;
-    }
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -476,6 +506,7 @@ gboolean bd_zfs_pool_destroy (const gchar *name, gboolean force, GError **error)
     argv[next_arg++] = "destroy";
     if (force)
         argv[next_arg++] = "-f";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
@@ -495,13 +526,11 @@ gboolean bd_zfs_pool_destroy (const gchar *name, gboolean force, GError **error)
  * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_export (const gchar *name, gboolean force, GError **error) {
-    const gchar *argv[5] = {NULL};
+    const gchar *argv[6] = {NULL};
     guint next_arg = 0;
 
-    if (!name || *name == '\0') {
-        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+    if (!validate_name_not_option (name, "Pool name", error))
         return FALSE;
-    }
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -510,6 +539,7 @@ gboolean bd_zfs_pool_export (const gchar *name, gboolean force, GError **error) 
     argv[next_arg++] = "export";
     if (force)
         argv[next_arg++] = "-f";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
@@ -541,6 +571,12 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
     gboolean success = FALSE;
     const gchar **dir_p = NULL;
 
+    if (!validate_name_not_option (name_or_guid, "Pool name or GUID", error))
+        return FALSE;
+
+    if (new_name && !validate_name_not_option (new_name, "New pool name", error))
+        return FALSE;
+
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
@@ -549,8 +585,8 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
             num_dirs++;
     }
 
-    /* zpool import [-f] [-d dir1 -d dir2 ...] <name_or_guid> [new_name] NULL */
-    num_args = 3 + (force ? 1 : 0) + (num_dirs * 2) + (new_name ? 1 : 0) + 1;
+    /* zpool import [-f] [-d dir1 -d dir2 ...] -- <name_or_guid> [new_name] NULL */
+    num_args = 4 + (force ? 1 : 0) + (num_dirs * 2) + (new_name ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     argv[next_arg++] = "zpool";
@@ -563,6 +599,7 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
             argv[next_arg++] = *dir_p;
         }
     }
+    argv[next_arg++] = "--";
     argv[next_arg++] = name_or_guid;
     if (new_name)
         argv[next_arg++] = new_name;
@@ -760,16 +797,14 @@ BDZFSPoolInfo** bd_zfs_pool_list_importable (GError **error) {
 BDZFSPoolInfo* bd_zfs_pool_get_info (const gchar *name, GError **error) {
     const gchar *argv[] = {"zpool", "list", "-H", "-p", "-o",
                            "name,guid,health,size,alloc,free,frag,dedupratio,altroot,ashift,readonly",
-                           name, NULL};
+                           "--", name, NULL};
     gchar *output = NULL;
     gboolean success;
     gchar **lines = NULL;
     BDZFSPoolInfo *info = NULL;
 
-    if (!name || *name == '\0') {
-        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+    if (!validate_name_not_option (name, "Pool name", error))
         return NULL;
-    }
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
@@ -814,7 +849,7 @@ BDZFSPoolInfo* bd_zfs_pool_get_info (const gchar *name, GError **error) {
  * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_QUERY
  */
 BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zpool", "status", "-P", name, NULL};
+    const gchar *argv[] = {"zpool", "status", "-P", "--", name, NULL};
     gchar *output = NULL;
     gboolean success;
     gchar **lines = NULL;
@@ -822,10 +857,8 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
     gboolean in_config = FALSE;
     gboolean header_skipped = FALSE;
 
-    if (!name || *name == '\0') {
-        g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No pool name given");
+    if (!validate_name_not_option (name, "Pool name", error))
         return NULL;
-    }
 
     /* Stack for building the tree. We track indent level and corresponding vdev info. */
     /* Max depth of 64 should be more than enough for any ZFS pool. */
@@ -1010,7 +1043,10 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
     gboolean success = FALSE;
     const gchar **vdev_p = NULL;
 
-    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (raid_level && !validate_name_not_option (raid_level, "RAID level", error))
         return FALSE;
 
     if (!vdevs || !vdevs[0]) {
@@ -1018,15 +1054,22 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
         return FALSE;
     }
 
-    for (vdev_p = vdevs; *vdev_p != NULL; vdev_p++)
+    for (vdev_p = vdevs; *vdev_p != NULL; vdev_p++) {
+        if (!validate_name_not_option (*vdev_p, "Vdev", error))
+            return FALSE;
         num_vdevs++;
+    }
 
-    /* zpool add [-f] <name> [raid_level] <vdev1> ... <vdevN> NULL */
-    num_args = 3 + num_vdevs + (raid_level ? 1 : 0) + 1;
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    /* zpool add -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
+    num_args = 4 + num_vdevs + (raid_level ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "add";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     if (raid_level)
         argv[next_arg++] = raid_level;
@@ -1052,14 +1095,21 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
  * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_remove_vdev (const gchar *name, const gchar *vdev, GError **error) {
-    const gchar *argv[5] = {NULL};
+    const gchar *argv[6] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (vdev, "Vdev", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "remove";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg++] = vdev;
     argv[next_arg] = NULL;
@@ -1081,14 +1131,24 @@ gboolean bd_zfs_pool_remove_vdev (const gchar *name, const gchar *vdev, GError *
  * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_attach (const gchar *name, const gchar *existing_vdev, const gchar *new_vdev, GError **error) {
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[7] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (existing_vdev, "Existing vdev", error))
+        return FALSE;
+
+    if (!validate_name_not_option (new_vdev, "New vdev", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "attach";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg++] = existing_vdev;
     argv[next_arg++] = new_vdev;
@@ -1110,14 +1170,21 @@ gboolean bd_zfs_pool_attach (const gchar *name, const gchar *existing_vdev, cons
  * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_detach (const gchar *name, const gchar *vdev, GError **error) {
-    const gchar *argv[5] = {NULL};
+    const gchar *argv[6] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (vdev, "Vdev", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "detach";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg++] = vdev;
     argv[next_arg] = NULL;
@@ -1141,8 +1208,17 @@ gboolean bd_zfs_pool_detach (const gchar *name, const gchar *vdev, GError **erro
  */
 gboolean bd_zfs_pool_replace (const gchar *name, const gchar *old_vdev, const gchar *new_vdev,
                                gboolean force, GError **error) {
-    const gchar *argv[7] = {NULL};
+    const gchar *argv[8] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (old_vdev, "Old vdev", error))
+        return FALSE;
+
+    if (!validate_name_not_option (new_vdev, "New vdev", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -1151,6 +1227,7 @@ gboolean bd_zfs_pool_replace (const gchar *name, const gchar *old_vdev, const gc
     argv[next_arg++] = "replace";
     if (force)
         argv[next_arg++] = "-f";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg++] = old_vdev;
     argv[next_arg++] = new_vdev;
@@ -1173,8 +1250,14 @@ gboolean bd_zfs_pool_replace (const gchar *name, const gchar *old_vdev, const gc
  * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_online (const gchar *name, const gchar *vdev, gboolean expand, GError **error) {
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[7] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (vdev, "Vdev", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -1183,6 +1266,7 @@ gboolean bd_zfs_pool_online (const gchar *name, const gchar *vdev, gboolean expa
     argv[next_arg++] = "online";
     if (expand)
         argv[next_arg++] = "-e";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg++] = vdev;
     argv[next_arg] = NULL;
@@ -1204,8 +1288,14 @@ gboolean bd_zfs_pool_online (const gchar *name, const gchar *vdev, gboolean expa
  * Tech category: %BD_ZFS_TECH_VDEV-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean temporary, GError **error) {
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[7] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (vdev, "Vdev", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -1214,6 +1304,7 @@ gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean tem
     argv[next_arg++] = "offline";
     if (temporary)
         argv[next_arg++] = "-t";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg++] = vdev;
     argv[next_arg] = NULL;
@@ -1233,7 +1324,10 @@ gboolean bd_zfs_pool_offline (const gchar *name, const gchar *vdev, gboolean tem
  * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_scrub_start (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zpool", "scrub", name, NULL};
+    const gchar *argv[] = {"zpool", "scrub", "--", name, NULL};
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -1253,7 +1347,10 @@ gboolean bd_zfs_pool_scrub_start (const gchar *name, GError **error) {
  * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_scrub_stop (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zpool", "scrub", "-s", name, NULL};
+    const gchar *argv[] = {"zpool", "scrub", "-s", "--", name, NULL};
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -1273,7 +1370,10 @@ gboolean bd_zfs_pool_scrub_stop (const gchar *name, GError **error) {
  * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_scrub_pause (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zpool", "scrub", "-p", name, NULL};
+    const gchar *argv[] = {"zpool", "scrub", "-p", "--", name, NULL};
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -1338,7 +1438,7 @@ static guint64 parse_size_suffix (const gchar *str) {
  * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_QUERY
  */
 BDZFSScrubInfo* bd_zfs_pool_scrub_status (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zpool", "status", name, NULL};
+    const gchar *argv[] = {"zpool", "status", "--", name, NULL};
     gchar *output = NULL;
     gboolean success;
     gchar **lines = NULL;
@@ -1346,6 +1446,9 @@ BDZFSScrubInfo* bd_zfs_pool_scrub_status (const gchar *name, GError **error) {
     BDZFSScrubInfo *info = NULL;
     gchar *scan_line = NULL;
     gchar *next_line = NULL;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return NULL;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
@@ -1553,14 +1656,21 @@ BDZFSScrubInfo* bd_zfs_pool_scrub_status (const gchar *name, GError **error) {
  * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_trim_start (const gchar *name, const gchar *vdev, GError **error) {
-    const gchar *argv[5] = {NULL};
+    const gchar *argv[6] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (vdev && !validate_name_not_option (vdev, "Vdev", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "trim";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     if (vdev)
         argv[next_arg++] = vdev;
@@ -1582,8 +1692,14 @@ gboolean bd_zfs_pool_trim_start (const gchar *name, const gchar *vdev, GError **
  * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **error) {
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[7] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (vdev && !validate_name_not_option (vdev, "Vdev", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -1591,6 +1707,7 @@ gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **e
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "trim";
     argv[next_arg++] = "-s";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     if (vdev)
         argv[next_arg++] = vdev;
@@ -1612,14 +1729,21 @@ gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **e
  * Tech category: %BD_ZFS_TECH_MAINTENANCE-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_clear (const gchar *name, const gchar *vdev, GError **error) {
-    const gchar *argv[5] = {NULL};
+    const gchar *argv[6] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (vdev && !validate_name_not_option (vdev, "Vdev", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "clear";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     if (vdev)
         argv[next_arg++] = vdev;
@@ -1677,11 +1801,17 @@ static BDZFSPropertyInfo* parse_property_line (const gchar *line) {
  * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
  */
 BDZFSPropertyInfo* bd_zfs_pool_get_property (const gchar *name, const gchar *property, GError **error) {
-    const gchar *argv[] = {"zpool", "get", "-H", "-p", property, name, NULL};
+    const gchar *argv[] = {"zpool", "get", "-H", "-p", property, "--", name, NULL};
     gchar *output = NULL;
     gboolean success;
     gchar **lines = NULL;
     BDZFSPropertyInfo *info = NULL;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return NULL;
+
+    if (!validate_name_not_option (property, "Property name", error))
+        return NULL;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
@@ -1731,6 +1861,12 @@ gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, con
     const gchar *argv[5] = {NULL};
     gboolean success;
 
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (property, "Property name", error))
+        return FALSE;
+
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
@@ -1760,13 +1896,16 @@ gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, con
  * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
  */
 BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zpool", "get", "-H", "-p", "all", name, NULL};
+    const gchar *argv[] = {"zpool", "get", "-H", "-p", "all", "--", name, NULL};
     gchar *output = NULL;
     gboolean success;
     gchar **lines = NULL;
     gchar **line_p = NULL;
     GPtrArray *props;
     BDZFSPropertyInfo *info = NULL;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return NULL;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
@@ -1893,7 +2032,10 @@ static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line) {
  * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_CREATE
  */
 gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GError **error) {
-    const gchar *argv[] = {"zfs", "create", name, NULL};
+    const gchar *argv[] = {"zfs", "create", "--", name, NULL};
+
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -1915,8 +2057,11 @@ gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GEr
  * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_DELETE
  */
 gboolean bd_zfs_dataset_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error) {
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[7] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -1927,6 +2072,7 @@ gboolean bd_zfs_dataset_destroy (const gchar *name, gboolean recursive, gboolean
         argv[next_arg++] = "-r";
     if (force)
         argv[next_arg++] = "-f";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
@@ -1957,11 +2103,14 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
     GPtrArray *dataset_infos;
     BDZFSDatasetInfo *info = NULL;
 
+    if (pool_or_parent && !validate_name_not_option (pool_or_parent, "Pool or parent dataset", error))
+        return NULL;
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
-    /* zfs list -H -p -t all [-r] -o <fields> [pool_or_parent] NULL */
-    num_args = 8 + (recursive ? 1 : 0) + (pool_or_parent ? 1 : 0) + 1;
+    /* zfs list -H -p -t all [-r] -o <fields> [-- pool_or_parent] NULL */
+    num_args = 8 + (recursive ? 1 : 0) + (pool_or_parent ? 2 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     argv[next_arg++] = "zfs";
@@ -1974,8 +2123,10 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
         argv[next_arg++] = "-r";
     argv[next_arg++] = "-o";
     argv[next_arg++] = "name,type,mountpoint,origin,used,avail,refer,compress,encryption,keystatus,mounted";
-    if (pool_or_parent)
+    if (pool_or_parent) {
+        argv[next_arg++] = "--";
         argv[next_arg++] = pool_or_parent;
+    }
     argv[next_arg] = NULL;
 
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
@@ -2016,11 +2167,14 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
 BDZFSDatasetInfo* bd_zfs_dataset_get_info (const gchar *name, GError **error) {
     const gchar *argv[] = {"zfs", "list", "-H", "-p", "-t", "all", "-o",
                            "name,type,mountpoint,origin,used,avail,refer,compress,encryption,keystatus,mounted",
-                           name, NULL};
+                           "--", name, NULL};
     gchar *output = NULL;
     gboolean success;
     gchar **lines = NULL;
     BDZFSDatasetInfo *info = NULL;
+
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return NULL;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
@@ -2068,8 +2222,14 @@ BDZFSDatasetInfo* bd_zfs_dataset_get_info (const gchar *name, GError **error) {
  */
 gboolean bd_zfs_dataset_rename (const gchar *name, const gchar *new_name, gboolean create_parent,
                                  gboolean force, GError **error) {
-    const gchar *argv[7] = {NULL};
+    const gchar *argv[8] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (new_name, "New dataset name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2080,6 +2240,7 @@ gboolean bd_zfs_dataset_rename (const gchar *name, const gchar *new_name, gboole
         argv[next_arg++] = "-p";
     if (force)
         argv[next_arg++] = "-f";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg++] = new_name;
     argv[next_arg] = NULL;
@@ -2103,9 +2264,12 @@ gboolean bd_zfs_dataset_rename (const gchar *name, const gchar *new_name, gboole
  */
 gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const BDExtraArg **extra, GError **error) {
     gchar *mp_opt = NULL;
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[7] = {NULL};
     guint next_arg = 0;
     gboolean success;
+
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2117,6 +2281,7 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
         argv[next_arg++] = "-o";
         argv[next_arg++] = mp_opt;
     }
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
@@ -2138,8 +2303,11 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
  * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_dataset_unmount (const gchar *name, gboolean force, GError **error) {
-    const gchar *argv[5] = {NULL};
+    const gchar *argv[6] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2148,6 +2316,7 @@ gboolean bd_zfs_dataset_unmount (const gchar *name, gboolean force, GError **err
     argv[next_arg++] = "unmount";
     if (force)
         argv[next_arg++] = "-f";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
@@ -2167,11 +2336,17 @@ gboolean bd_zfs_dataset_unmount (const gchar *name, gboolean force, GError **err
  * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
  */
 BDZFSPropertyInfo* bd_zfs_dataset_get_property (const gchar *name, const gchar *property, GError **error) {
-    const gchar *argv[] = {"zfs", "get", "-H", "-p", property, name, NULL};
+    const gchar *argv[] = {"zfs", "get", "-H", "-p", property, "--", name, NULL};
     gchar *output = NULL;
     gboolean success;
     gchar **lines = NULL;
     BDZFSPropertyInfo *info = NULL;
+
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return NULL;
+
+    if (!validate_name_not_option (property, "Property name", error))
+        return NULL;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
@@ -2221,6 +2396,12 @@ gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, 
     const gchar *argv[5] = {NULL};
     gboolean success;
 
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (property, "Property name", error))
+        return FALSE;
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
@@ -2250,13 +2431,16 @@ gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, 
  * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
  */
 BDZFSPropertyInfo** bd_zfs_dataset_get_properties (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zfs", "get", "-H", "-p", "all", name, NULL};
+    const gchar *argv[] = {"zfs", "get", "-H", "-p", "all", "--", name, NULL};
     gchar *output = NULL;
     gboolean success;
     gchar **lines = NULL;
     gchar **line_p = NULL;
     GPtrArray *props;
     BDZFSPropertyInfo *info = NULL;
+
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return NULL;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
@@ -2352,8 +2536,11 @@ static BDZFSSnapshotInfo* parse_snapshot_info_line (const gchar *line) {
  */
 gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
                                   const BDExtraArg **extra, GError **error) {
-    const gchar *argv[5] = {NULL};
+    const gchar *argv[6] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Snapshot name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2362,6 +2549,7 @@ gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
     argv[next_arg++] = "snapshot";
     if (recursive)
         argv[next_arg++] = "-r";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
@@ -2381,8 +2569,11 @@ gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
  * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_DELETE
  */
 gboolean bd_zfs_snapshot_destroy (const gchar *name, gboolean recursive, GError **error) {
-    const gchar *argv[5] = {NULL};
+    const gchar *argv[6] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Snapshot name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2391,6 +2582,7 @@ gboolean bd_zfs_snapshot_destroy (const gchar *name, gboolean recursive, GError 
     argv[next_arg++] = "destroy";
     if (recursive)
         argv[next_arg++] = "-r";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
@@ -2421,11 +2613,14 @@ BDZFSSnapshotInfo** bd_zfs_snapshot_list (const gchar *dataset, gboolean recursi
     GPtrArray *snap_infos;
     BDZFSSnapshotInfo *info = NULL;
 
+    if (dataset && !validate_name_not_option (dataset, "Dataset", error))
+        return NULL;
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
-    /* zfs list -H -p -t snapshot [-r] -o name,used,refer,creation [dataset] NULL */
-    num_args = 8 + (recursive ? 1 : 0) + (dataset ? 1 : 0) + 1;
+    /* zfs list -H -p -t snapshot [-r] -o name,used,refer,creation [-- dataset] NULL */
+    num_args = 8 + (recursive ? 1 : 0) + (dataset ? 2 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     argv[next_arg++] = "zfs";
@@ -2438,8 +2633,10 @@ BDZFSSnapshotInfo** bd_zfs_snapshot_list (const gchar *dataset, gboolean recursi
         argv[next_arg++] = "-r";
     argv[next_arg++] = "-o";
     argv[next_arg++] = "name,used,refer,creation";
-    if (dataset)
+    if (dataset) {
+        argv[next_arg++] = "--";
         argv[next_arg++] = dataset;
+    }
     argv[next_arg] = NULL;
 
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
@@ -2480,8 +2677,11 @@ BDZFSSnapshotInfo** bd_zfs_snapshot_list (const gchar *dataset, gboolean recursi
  * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean destroy_newer, GError **error) {
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[7] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Snapshot name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2492,6 +2692,7 @@ gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean d
         argv[next_arg++] = "-f";
     if (destroy_newer)
         argv[next_arg++] = "-r";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
@@ -2513,7 +2714,13 @@ gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean d
  */
 gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
                                  const BDExtraArg **extra, GError **error) {
-    const gchar *argv[] = {"zfs", "clone", snapshot, clone_name, NULL};
+    const gchar *argv[] = {"zfs", "clone", "--", snapshot, clone_name, NULL};
+
+    if (!validate_name_not_option (snapshot, "Snapshot name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (clone_name, "Clone name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2534,7 +2741,13 @@ gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
  * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_CREATE
  */
 gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, GError **error) {
-    const gchar *argv[] = {"zfs", "bookmark", snapshot, bookmark, NULL};
+    const gchar *argv[] = {"zfs", "bookmark", "--", snapshot, bookmark, NULL};
+
+    if (!validate_name_not_option (snapshot, "Snapshot name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (bookmark, "Bookmark name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2554,7 +2767,10 @@ gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, G
  * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_DELETE
  */
 gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zfs", "destroy", name, NULL};
+    const gchar *argv[] = {"zfs", "destroy", "--", name, NULL};
+
+    if (!validate_name_not_option (name, "Bookmark name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2584,11 +2800,14 @@ BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) 
     gchar **line_p = NULL;
     GPtrArray *bookmarks;
 
+    if (dataset && !validate_name_not_option (dataset, "Dataset", error))
+        return NULL;
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
-    /* zfs list -H -p -t bookmark -o name,creation [dataset] NULL */
-    num_args = 8 + (dataset ? 1 : 0) + 1;
+    /* zfs list -H -p -t bookmark -o name,creation [-- dataset] NULL */
+    num_args = 8 + (dataset ? 2 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     argv[next_arg++] = "zfs";
@@ -2599,8 +2818,10 @@ BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) 
     argv[next_arg++] = "bookmark";
     argv[next_arg++] = "-o";
     argv[next_arg++] = "name,creation";
-    if (dataset)
+    if (dataset) {
+        argv[next_arg++] = "--";
         argv[next_arg++] = dataset;
+    }
     argv[next_arg] = NULL;
 
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
@@ -2661,20 +2882,23 @@ BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) 
  * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_encryption_load_key (const gchar *dataset, const gchar *key_location, GError **error) {
+    if (!validate_name_not_option (dataset, "Dataset name", error))
+        return FALSE;
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
     if (key_location == NULL) {
         /* Use the dataset's own keylocation property */
-        const gchar *argv[] = {"zfs", "load-key", dataset, NULL};
+        const gchar *argv[] = {"zfs", "load-key", "--", dataset, NULL};
         return bd_utils_exec_and_report_error (argv, NULL, error);
     } else if (g_str_has_prefix (key_location, "file://")) {
         /* File-based key location — pass directly via -L */
-        const gchar *argv[] = {"zfs", "load-key", "-L", key_location, dataset, NULL};
+        const gchar *argv[] = {"zfs", "load-key", "-L", key_location, "--", dataset, NULL};
         return bd_utils_exec_and_report_error (argv, NULL, error);
     } else {
         /* Passphrase string — pipe via stdin with -L prompt */
-        const gchar *argv[] = {"zfs", "load-key", "-L", "prompt", dataset, NULL};
+        const gchar *argv[] = {"zfs", "load-key", "-L", "prompt", "--", dataset, NULL};
         return bd_utils_exec_with_input (argv, key_location, NULL, error);
     }
 }
@@ -2692,7 +2916,10 @@ gboolean bd_zfs_encryption_load_key (const gchar *dataset, const gchar *key_loca
  * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error) {
-    const gchar *argv[] = {"zfs", "unload-key", dataset, NULL};
+    const gchar *argv[] = {"zfs", "unload-key", "--", dataset, NULL};
+
+    if (!validate_name_not_option (dataset, "Dataset name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2718,17 +2945,20 @@ gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error) {
  */
 gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_key_location,
                                         const BDExtraArg **extra, GError **error) {
+    if (!validate_name_not_option (dataset, "Dataset name", error))
+        return FALSE;
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
     if (new_key_location == NULL) {
         /* Inherit key from parent */
-        const gchar *argv[] = {"zfs", "change-key", "-i", dataset, NULL};
+        const gchar *argv[] = {"zfs", "change-key", "-i", "--", dataset, NULL};
         return bd_utils_exec_and_report_error (argv, extra, error);
     } else {
         /* Set new key location via -o keylocation=<value> */
         gchar *opt = g_strdup_printf ("keylocation=%s", new_key_location);
-        const gchar *argv[] = {"zfs", "change-key", "-o", opt, dataset, NULL};
+        const gchar *argv[] = {"zfs", "change-key", "-o", opt, "--", dataset, NULL};
         gboolean ret = bd_utils_exec_and_report_error (argv, extra, error);
         g_free (opt);
         return ret;
@@ -2748,11 +2978,14 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
  * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_QUERY
  */
 BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **error) {
-    const gchar *argv[] = {"zfs", "get", "-H", "-p", "-o", "value", "keystatus", dataset, NULL};
+    const gchar *argv[] = {"zfs", "get", "-H", "-p", "-o", "value", "keystatus", "--", dataset, NULL};
     gchar *output = NULL;
     gboolean success;
     gchar *value = NULL;
     BDZFSKeyStatus ret = BD_ZFS_KEY_STATUS_NONE;
+
+    if (!validate_name_not_option (dataset, "Dataset name", error))
+        return BD_ZFS_KEY_STATUS_NONE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return BD_ZFS_KEY_STATUS_NONE;
@@ -2798,11 +3031,14 @@ gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, c
     gchar *size_str = NULL;
     gboolean success = FALSE;
 
+    if (!validate_name_not_option (name, "Zvol name", error))
+        return FALSE;
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    /* zfs create -V <size> [-s] <name> NULL */
-    num_args = 5 + (sparse ? 1 : 0) + 1;
+    /* zfs create -V <size> [-s] -- <name> NULL */
+    num_args = 6 + (sparse ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     size_str = g_strdup_printf ("%" G_GUINT64_FORMAT, size);
@@ -2813,6 +3049,7 @@ gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, c
     argv[next_arg++] = size_str;
     if (sparse)
         argv[next_arg++] = "-s";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
 
     success = bd_utils_exec_and_report_error (argv, extra, error);
@@ -2835,8 +3072,11 @@ gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, c
  * Tech category: %BD_ZFS_TECH_ZVOL-%BD_ZFS_TECH_MODE_DELETE
  */
 gboolean bd_zfs_zvol_destroy (const gchar *name, gboolean recursive, gboolean force, GError **error) {
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[7] = {NULL};
     guint next_arg = 0;
+
+    if (!validate_name_not_option (name, "Zvol name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2847,6 +3087,7 @@ gboolean bd_zfs_zvol_destroy (const gchar *name, gboolean recursive, gboolean fo
         argv[next_arg++] = "-r";
     if (force)
         argv[next_arg++] = "-f";
+    argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
@@ -2869,6 +3110,9 @@ gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error
     gchar *volsize_str = NULL;
     const gchar *argv[5] = {NULL};
     gboolean success;
+
+    if (!validate_name_not_option (name, "Zvol name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2898,7 +3142,10 @@ gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error
  * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_snapshot_promote (const gchar *clone_name, GError **error) {
-    const gchar *argv[] = {"zfs", "promote", clone_name, NULL};
+    const gchar *argv[] = {"zfs", "promote", "--", clone_name, NULL};
+
+    if (!validate_name_not_option (clone_name, "Clone name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2919,7 +3166,13 @@ gboolean bd_zfs_snapshot_promote (const gchar *clone_name, GError **error) {
  * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_snapshot_hold (const gchar *snapshot, const gchar *tag, GError **error) {
-    const gchar *argv[] = {"zfs", "hold", tag, snapshot, NULL};
+    const gchar *argv[] = {"zfs", "hold", "--", tag, snapshot, NULL};
+
+    if (!validate_name_not_option (snapshot, "Snapshot name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (tag, "Hold tag", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2940,7 +3193,13 @@ gboolean bd_zfs_snapshot_hold (const gchar *snapshot, const gchar *tag, GError *
  * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_snapshot_release (const gchar *snapshot, const gchar *tag, GError **error) {
-    const gchar *argv[] = {"zfs", "release", tag, snapshot, NULL};
+    const gchar *argv[] = {"zfs", "release", "--", tag, snapshot, NULL};
+
+    if (!validate_name_not_option (snapshot, "Snapshot name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (tag, "Hold tag", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2961,7 +3220,13 @@ gboolean bd_zfs_snapshot_release (const gchar *snapshot, const gchar *tag, GErro
  * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_dataset_inherit_property (const gchar *name, const gchar *property, GError **error) {
-    const gchar *argv[] = {"zfs", "inherit", property, name, NULL};
+    const gchar *argv[] = {"zfs", "inherit", "--", property, name, NULL};
+
+    if (!validate_name_not_option (name, "Dataset name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (property, "Property name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -2981,7 +3246,10 @@ gboolean bd_zfs_dataset_inherit_property (const gchar *name, const gchar *proper
  * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_MODIFY
  */
 gboolean bd_zfs_pool_upgrade (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zpool", "upgrade", name, NULL};
+    const gchar *argv[] = {"zpool", "upgrade", "--", name, NULL};
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -3001,9 +3269,12 @@ gboolean bd_zfs_pool_upgrade (const gchar *name, GError **error) {
  * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
  */
 gchar* bd_zfs_pool_history (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zpool", "history", name, NULL};
+    const gchar *argv[] = {"zpool", "history", "--", name, NULL};
     gchar *output = NULL;
     gboolean success;
+
+    if (!validate_name_not_option (name, "Pool name", error))
+        return NULL;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
