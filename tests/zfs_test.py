@@ -451,3 +451,39 @@ class ZfsDatasetInfoEncryptionFieldsTestCase(ZfsPluginTest):
         info = infos[0]
         self.assertIsNotNone(info.encryption,
                              "encryption field should be populated on OpenZFS >= 0.8.0")
+
+
+class ZfsUnknownEnumValuesTestCase(ZfsPluginTest):
+    """Tests that UNKNOWN enum values exist and are used for error/unrecognized states."""
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_key_status_unknown_enum_exists(self):
+        """BD_ZFS_KEY_STATUS_UNKNOWN must be accessible through GI"""
+        val = BlockDev.ZFSKeyStatus.UNKNOWN
+        self.assertIsNotNone(val)
+        # UNKNOWN must be distinct from NONE
+        self.assertNotEqual(val, BlockDev.ZFSKeyStatus.NONE)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_type_unknown_enum_exists(self):
+        """BD_ZFS_DATASET_TYPE_UNKNOWN must be accessible through GI"""
+        val = BlockDev.ZFSDatasetType.UNKNOWN
+        self.assertIsNotNone(val)
+        # UNKNOWN must be distinct from FILESYSTEM
+        self.assertNotEqual(val, BlockDev.ZFSDatasetType.FILESYSTEM)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_key_status_returns_unknown_on_error(self):
+        """encryption_key_status must return UNKNOWN (not NONE) on validation error"""
+        with self.assertRaises(GLib.GError):
+            status = BlockDev.zfs_encryption_key_status("--help")
+        # Also test with an empty name — should raise and return UNKNOWN
+        with self.assertRaises(GLib.GError):
+            status = BlockDev.zfs_encryption_key_status("")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_key_status_none_means_no_encryption(self):
+        """BD_ZFS_KEY_STATUS_NONE must still exist for 'no encryption' semantics"""
+        val = BlockDev.ZFSKeyStatus.NONE
+        self.assertIsNotNone(val)
+        self.assertEqual(int(val), 0)

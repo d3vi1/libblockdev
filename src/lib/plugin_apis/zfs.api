@@ -81,12 +81,14 @@ typedef enum {
     BD_ZFS_DATASET_TYPE_VOLUME,
     BD_ZFS_DATASET_TYPE_SNAPSHOT,
     BD_ZFS_DATASET_TYPE_BOOKMARK,
+    BD_ZFS_DATASET_TYPE_UNKNOWN,
 } BDZFSDatasetType;
 
 typedef enum {
     BD_ZFS_KEY_STATUS_NONE,
     BD_ZFS_KEY_STATUS_AVAILABLE,
     BD_ZFS_KEY_STATUS_UNAVAILABLE,
+    BD_ZFS_KEY_STATUS_UNKNOWN,
 } BDZFSKeyStatus;
 
 typedef enum {
@@ -1256,7 +1258,7 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
  *
  * Queries the encryption key status of a ZFS dataset by reading the keystatus property.
  *
- * Returns: the #BDZFSKeyStatus of the dataset, or %BD_ZFS_KEY_STATUS_NONE on error
+ * Returns: the #BDZFSKeyStatus of the dataset, or %BD_ZFS_KEY_STATUS_UNKNOWN on error
  *
  * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_QUERY
  */
