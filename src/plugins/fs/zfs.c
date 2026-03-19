@@ -125,10 +125,9 @@ resolve_pool_name_from_device (const gchar *device, GError **error) {
     success = bd_utils_exec_and_capture_output (argv_zdb, NULL, &zdb_output, error);
     if (!success) {
         g_free (zdb_output);
-        /* Clear the exec error and set our own descriptive message */
-        g_clear_error (error);
-        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                     "Failed to determine ZFS pool name for device '%s'", device);
+        g_prefix_error (error,
+                        "Failed to determine ZFS pool name for device '%s': ",
+                        device);
         return NULL;
     }
 
@@ -136,6 +135,9 @@ resolve_pool_name_from_device (const gchar *device, GError **error) {
     gchar **zdb_lines = g_strsplit (zdb_output, "\n", -1);
     g_free (zdb_output);
 
+    /* zdb -l may output multiple label copies (0-3), each with its own
+     * "name: 'poolname'" line.  They all carry the same pool name, so
+     * we take the first match. */
     for (gchar **lp = zdb_lines; *lp; lp++) {
         gchar *stripped = g_strstrip (g_strdup (*lp));
         if (g_str_has_prefix (stripped, "name: '")) {
@@ -171,6 +173,8 @@ resolve_pool_name_from_device (const gchar *device, GError **error) {
  * Renames the ZFS pool that @device belongs to. This is done by
  * exporting the pool and re-importing it with the new name.
  * The pool must not have any busy datasets (mounted filesystems, etc.).
+ * The pool name is resolved from @device using zdb(8). Both zpool and zdb
+ * must be available.
  *
  * Returns: whether the pool was successfully renamed or not
  *
@@ -324,6 +328,9 @@ gboolean bd_fs_zfs_check_uuid (const gchar *uuid, GError **error) {
  * bd_fs_zfs_get_info:
  * @device: the device containing the file system to get info for
  * @error: (out) (optional): place to store error (if any)
+ *
+ * The pool is identified by reading the ZFS on-disk label from @device using
+ * zdb(8). Requires both zpool and zdb to be available on the system.
  *
  * Returns: (transfer full): information about the ZFS file system on @device or
  *                           %NULL in case of error

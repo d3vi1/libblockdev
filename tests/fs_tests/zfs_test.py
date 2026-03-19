@@ -1,6 +1,4 @@
-import tempfile
-
-from .fs_test import FSTestCase, FSNoDevTestCase, mounted
+from .fs_test import FSNoDevTestCase
 
 import overrides_hack
 import utils
@@ -57,6 +55,10 @@ class ZfsTestAvailability(ZfsNoDevTestCase):
         with utils.fake_path(all_but="zpool"):
             with self.assertRaisesRegex(GLib.GError, "The 'zpool' utility is not available"):
                 BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS, BlockDev.FSTechMode.SET_LABEL)
+
+        with utils.fake_path(all_but="zpool"):
+            with self.assertRaisesRegex(GLib.GError, "The 'zpool' utility is not available"):
+                BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS, BlockDev.FSTechMode.QUERY)
 
 
 class ZfsTestSetLabelNoFallback(ZfsNoDevTestCase):
