@@ -227,6 +227,8 @@ void bd_zfs_scrub_info_free (BDZFSScrubInfo *info) {
 static volatile guint avail_deps = 0;
 static GMutex deps_check_lock;
 
+static gchar *cached_zfs_version = NULL;
+
 #define DEPS_ZPOOL 0
 #define DEPS_ZPOOL_MASK (1 << DEPS_ZPOOL)
 #define DEPS_ZFS 1
@@ -266,6 +268,121 @@ validate_name_not_option (const gchar *name, const gchar *param_name, GError **e
 }
 
 /**
+ * normalize_zfs_version:
+ * @raw: raw version string, e.g. "2.2.6-1ubuntu3" or "zfs-2.1.5-1.el9"
+ *
+ * Extracts the clean semver prefix from a raw ZFS version string.
+ * Finds the first digit, then reads digits and dots until hitting a
+ * character that breaks the major.minor.patch pattern (i.e., not a digit
+ * and not a dot, or a dot not followed by a digit).
+ *
+ * Returns: (transfer full): the normalized version string, or %NULL if
+ *          no version could be extracted.  Free with g_free().
+ */
+static gchar *
+normalize_zfs_version (const gchar *raw) {
+    const gchar *p;
+    const gchar *start;
+    const gchar *end;
+
+    if (!raw)
+        return NULL;
+
+    /* find the first digit */
+    for (p = raw; *p != '\0'; p++) {
+        if (g_ascii_isdigit (*p))
+            break;
+    }
+    if (*p == '\0')
+        return NULL;
+
+    start = p;
+
+    /* read digits and dots while the pattern holds */
+    while (*p != '\0') {
+        if (g_ascii_isdigit (*p)) {
+            p++;
+        } else if (*p == '.' && *(p + 1) != '\0' && g_ascii_isdigit (*(p + 1))) {
+            p++;
+        } else {
+            break;
+        }
+    }
+
+    end = p;
+    if (end == start)
+        return NULL;
+
+    return g_strndup (start, (gsize)(end - start));
+}
+
+/**
+ * probe_zfs_version:
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Runs ``zfs version``, parses the output to find a version string,
+ * normalizes it, and caches the result.  Subsequent calls return the
+ * cached value without re-running the command.
+ *
+ * Must be called with deps already checked (i.e. zfs tool available).
+ *
+ * Returns: the cached normalized version string, or %NULL on error.
+ *          The caller must NOT free the returned string.
+ */
+static const gchar *
+probe_zfs_version (GError **error) {
+    const gchar *argv[] = {"zfs", "version", NULL};
+    gchar *output = NULL;
+    gboolean success;
+
+    g_mutex_lock (&deps_check_lock);
+
+    if (cached_zfs_version) {
+        g_mutex_unlock (&deps_check_lock);
+        return cached_zfs_version;
+    }
+
+    g_mutex_unlock (&deps_check_lock);
+
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        g_free (output);
+        return NULL;
+    }
+
+    /* parse line by line looking for a version-like pattern */
+    gchar **lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    gchar *normalized = NULL;
+    for (gchar **line = lines; *line != NULL; line++) {
+        g_strstrip (*line);
+        if (**line == '\0')
+            continue;
+
+        normalized = normalize_zfs_version (*line);
+        if (normalized)
+            break;
+    }
+    g_strfreev (lines);
+
+    if (!normalized) {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
+                     "Failed to parse ZFS version from 'zfs version' output");
+        return NULL;
+    }
+
+    g_mutex_lock (&deps_check_lock);
+    if (!cached_zfs_version)
+        cached_zfs_version = normalized;
+    else
+        g_free (normalized);
+    g_mutex_unlock (&deps_check_lock);
+
+    return cached_zfs_version;
+}
+
+/**
  * bd_zfs_init:
  *
  * Initializes the plugin. **This function is called automatically by the
@@ -287,6 +404,11 @@ gboolean bd_zfs_init (void) {
 void bd_zfs_close (void) {
     /* reset the cached deps so re-init re-checks tool availability */
     avail_deps = 0;
+
+    g_mutex_lock (&deps_check_lock);
+    g_free (cached_zfs_version);
+    cached_zfs_version = NULL;
+    g_mutex_unlock (&deps_check_lock);
 }
 
 /**
@@ -3300,4 +3422,27 @@ gchar* bd_zfs_pool_history (const gchar *name, GError **error) {
     }
 
     return output;
+}
+
+/**
+ * bd_zfs_get_zfs_version:
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Retrieves the installed ZFS version by running ``zfs version`` and
+ * normalizing the output to a clean ``major.minor.patch`` string with
+ * distro-specific suffixes removed (e.g. ``2.2.6-1ubuntu3`` becomes
+ * ``2.2.6``).
+ *
+ * The returned string is cached internally and must NOT be freed by the
+ * caller.
+ *
+ * Returns: (transfer none): the normalized ZFS version string, or %NULL on error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+const gchar* bd_zfs_get_zfs_version (GError **error) {
+    if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
+    return probe_zfs_version (error);
 }

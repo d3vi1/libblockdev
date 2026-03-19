@@ -226,3 +226,47 @@ class ZfsOptionInjectionTestCase(ZfsPluginTest):
     # fix/s1-4-vdev-parser-safety and verified by code review + defensive
     # reordering.  Runtime tests require a live ZFS pool with deeply nested
     # vdevs which is impractical in the unit-test environment.
+
+
+class ZfsVersionTestCase(ZfsPluginTest):
+    """Tests for bd_zfs_get_zfs_version() version probing."""
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_get_version_returns_string(self):
+        """get_zfs_version returns a version string when ZFS tools are available"""
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.POOL, BlockDev.ZFSTechMode.QUERY)
+        except GLib.GError:
+            self.skipTest("skipping: ZFS tools not available")
+
+        version = BlockDev.zfs_get_zfs_version()
+        self.assertIsNotNone(version)
+        # Version should look like digits.digits (at minimum major.minor)
+        import re
+        self.assertRegex(version, r'^\d+\.\d+')
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_get_version_no_distro_suffix(self):
+        """get_zfs_version must not contain distro suffixes (no '-', no letters)"""
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.POOL, BlockDev.ZFSTechMode.QUERY)
+        except GLib.GError:
+            self.skipTest("skipping: ZFS tools not available")
+
+        version = BlockDev.zfs_get_zfs_version()
+        self.assertIsNotNone(version)
+        # Should only contain digits and dots
+        import re
+        self.assertRegex(version, r'^\d+(\.\d+)*$')
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_get_version_is_cached(self):
+        """get_zfs_version returns the same pointer on subsequent calls"""
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.POOL, BlockDev.ZFSTechMode.QUERY)
+        except GLib.GError:
+            self.skipTest("skipping: ZFS tools not available")
+
+        version1 = BlockDev.zfs_get_zfs_version()
+        version2 = BlockDev.zfs_get_zfs_version()
+        self.assertEqual(version1, version2)
