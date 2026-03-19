@@ -1,3 +1,4 @@
+import tempfile
 import unittest
 
 import overrides_hack
@@ -1180,3 +1181,137 @@ class ZfsVdevInfoFieldsTestCase(ZfsPluginTest):
         self.assertTrue(hasattr(BlockDev.ZFSVdevInfo, 'read_errors'))
         self.assertTrue(hasattr(BlockDev.ZFSVdevInfo, 'write_errors'))
         self.assertTrue(hasattr(BlockDev.ZFSVdevInfo, 'checksum_errors'))
+
+
+class ZfsVdevInferTypeTestCase(ZfsPluginTest):
+    """Tests for bd_zfs_vdev_infer_type() path-based type inference."""
+
+    # ---- keyword vdev types ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_mirror_prefix(self):
+        """mirror- prefix must return MIRROR"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("mirror-0"),
+                         BlockDev.ZFSVdevType.MIRROR)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_raidz1_prefix(self):
+        """raidz1- prefix must return RAIDZ1"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("raidz1-0"),
+                         BlockDev.ZFSVdevType.RAIDZ1)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_raidz_prefix(self):
+        """raidz- (no digit) prefix must return RAIDZ1"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("raidz-0"),
+                         BlockDev.ZFSVdevType.RAIDZ1)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_raidz2_prefix(self):
+        """raidz2- prefix must return RAIDZ2"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("raidz2-0"),
+                         BlockDev.ZFSVdevType.RAIDZ2)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_raidz3_prefix(self):
+        """raidz3- prefix must return RAIDZ3"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("raidz3-0"),
+                         BlockDev.ZFSVdevType.RAIDZ3)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_draid_prefix(self):
+        """draid prefix must return DRAID"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("draid1:2d:4c:0s-0"),
+                         BlockDev.ZFSVdevType.DRAID)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_spare_keyword(self):
+        """'spare' must return SPARE"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("spare"),
+                         BlockDev.ZFSVdevType.SPARE)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_spares_keyword(self):
+        """'spares' must return SPARE"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("spares"),
+                         BlockDev.ZFSVdevType.SPARE)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_log_keyword(self):
+        """'log' must return LOG"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("log"),
+                         BlockDev.ZFSVdevType.LOG)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_logs_keyword(self):
+        """'logs' must return LOG"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("logs"),
+                         BlockDev.ZFSVdevType.LOG)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_cache_keyword(self):
+        """'cache' must return CACHE"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("cache"),
+                         BlockDev.ZFSVdevType.CACHE)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_special_keyword(self):
+        """'special' must return SPECIAL"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("special"),
+                         BlockDev.ZFSVdevType.SPECIAL)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dedup_keyword(self):
+        """'dedup' must return DEDUP"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("dedup"),
+                         BlockDev.ZFSVdevType.DEDUP)
+
+    # ---- short device names (assumed DISK) ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_sd_device(self):
+        """'sda' must return DISK"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("sda"),
+                         BlockDev.ZFSVdevType.DISK)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_nvme_device(self):
+        """'nvme0n1' must return DISK"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("nvme0n1"),
+                         BlockDev.ZFSVdevType.DISK)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_vd_device(self):
+        """'vda' must return DISK"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("vda"),
+                         BlockDev.ZFSVdevType.DISK)
+
+    # ---- absolute paths: stat()-based inference ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_regular_file_returns_file_type(self):
+        """An absolute path to a regular file must return FILE"""
+        with tempfile.NamedTemporaryFile() as tmp:
+            self.assertEqual(BlockDev.zfs_vdev_infer_type(tmp.name),
+                             BlockDev.ZFSVdevType.FILE)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_nonexistent_path_returns_unknown(self):
+        """An absolute path that does not exist must return UNKNOWN"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("/nonexistent/path/to/vdev"),
+                         BlockDev.ZFSVdevType.UNKNOWN)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_directory_path_returns_unknown(self):
+        """An absolute path to a directory must return UNKNOWN (not DISK or FILE)"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertEqual(BlockDev.zfs_vdev_infer_type(tmpdir),
+                             BlockDev.ZFSVdevType.UNKNOWN)
+
+    # ---- unrecognized name ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_unknown_name(self):
+        """An unrecognized name must return UNKNOWN"""
+        self.assertEqual(BlockDev.zfs_vdev_infer_type("foobar"),
+                         BlockDev.ZFSVdevType.UNKNOWN)

@@ -17,6 +17,7 @@
 
 #include <glib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <blockdev/utils.h>
 
 #include "zfs.h"
@@ -605,7 +606,19 @@ static BDZFSVdevState parse_vdev_state (const gchar *state_str) {
         return BD_ZFS_VDEV_STATE_UNKNOWN;
 }
 
-static BDZFSVdevType infer_vdev_type (const gchar *name) {
+/**
+ * bd_zfs_vdev_infer_type:
+ * @name: the vdev name or path as reported by zpool status
+ *
+ * Infers the vdev type from the vdev name. For absolute paths, stat() is
+ * used to distinguish block devices (%BD_ZFS_VDEV_TYPE_DISK) from regular
+ * files (%BD_ZFS_VDEV_TYPE_FILE). Short device names (e.g. "sda", "nvme0n1")
+ * are assumed to be disks. Keyword prefixes like "mirror-", "raidz1-", etc.
+ * map to their respective vdev types.
+ *
+ * Returns: the inferred #BDZFSVdevType
+ */
+BDZFSVdevType bd_zfs_vdev_infer_type (const gchar *name) {
     if (g_str_has_prefix (name, "mirror-"))
         return BD_ZFS_VDEV_TYPE_MIRROR;
     else if (g_str_has_prefix (name, "raidz1-") || g_str_has_prefix (name, "raidz-"))
@@ -626,9 +639,18 @@ static BDZFSVdevType infer_vdev_type (const gchar *name) {
         return BD_ZFS_VDEV_TYPE_SPECIAL;
     else if (g_strcmp0 (name, "dedup") == 0)
         return BD_ZFS_VDEV_TYPE_DEDUP;
-    else if (name[0] == '/' || g_str_has_prefix (name, "sd") || g_str_has_prefix (name, "nvme") ||
-             g_str_has_prefix (name, "vd") || g_str_has_prefix (name, "hd") ||
-             g_str_has_prefix (name, "xvd") || g_str_has_prefix (name, "da"))
+    else if (name[0] == '/') {
+        struct stat st;
+        if (stat (name, &st) == 0) {
+            if (S_ISBLK (st.st_mode))
+                return BD_ZFS_VDEV_TYPE_DISK;
+            else if (S_ISREG (st.st_mode))
+                return BD_ZFS_VDEV_TYPE_FILE;
+        }
+        return BD_ZFS_VDEV_TYPE_UNKNOWN;
+    } else if (g_str_has_prefix (name, "sd") || g_str_has_prefix (name, "nvme") ||
+               g_str_has_prefix (name, "vd") || g_str_has_prefix (name, "hd") ||
+               g_str_has_prefix (name, "xvd") || g_str_has_prefix (name, "da"))
         return BD_ZFS_VDEV_TYPE_DISK;
     else
         return BD_ZFS_VDEV_TYPE_UNKNOWN;
@@ -1273,7 +1295,7 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
         vdev->read_errors = g_ascii_strtoull (fields[2], NULL, 10);
         vdev->write_errors = g_ascii_strtoull (fields[3], NULL, 10);
         vdev->checksum_errors = g_ascii_strtoull (fields[4], NULL, 10);
-        vdev->type = infer_vdev_type (fields[0]);
+        vdev->type = bd_zfs_vdev_infer_type (fields[0]);
         vdev->children = NULL;
 
         g_strfreev (fields);

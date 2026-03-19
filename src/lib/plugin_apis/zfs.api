@@ -1476,4 +1476,20 @@ const gchar* bd_zfs_get_zfs_version (GError **error);
  */
 gboolean bd_zfs_validate_pool_name (const gchar *name, GError **error);
 
+/**
+ * bd_zfs_vdev_infer_type:
+ * @name: the vdev name or path as reported by zpool status
+ *
+ * Infers the vdev type from the vdev name. For absolute paths, stat() is
+ * used to distinguish block devices (%BD_ZFS_VDEV_TYPE_DISK) from regular
+ * files (%BD_ZFS_VDEV_TYPE_FILE). Short device names (e.g. "sda", "nvme0n1")
+ * are assumed to be disks. Keyword prefixes like "mirror-", "raidz1-", etc.
+ * map to their respective vdev types.
+ *
+ * Returns: the inferred #BDZFSVdevType
+ *
+ * Tech category: always available
+ */
+BDZFSVdevType bd_zfs_vdev_infer_type (const gchar *name);
+
 #endif /* BD_ZFS_API */
