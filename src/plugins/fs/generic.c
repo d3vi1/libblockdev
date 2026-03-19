@@ -349,9 +349,12 @@ const BDFSInfo fs_info[BD_FS_LAST_FS] = {
 const gchar** bd_fs_supported_filesystems (GError **error G_GNUC_UNUSED) {
     const gchar **filesystems = g_new0 (const gchar *, BD_FS_LAST_FS - BD_FS_OFFSET + 1);
     gint i = 0;
+    guint j = 0;
 
-    for (i = 0; i < BD_FS_LAST_FS - BD_FS_OFFSET; i++)
-        filesystems[i] = fs_info[i + BD_FS_OFFSET].type;
+    for (i = 0; i < BD_FS_LAST_FS - BD_FS_OFFSET; i++) {
+        if (fs_info[i + BD_FS_OFFSET].type)
+            filesystems[j++] = fs_info[i + BD_FS_OFFSET].type;
+    }
 
     return filesystems;
 }
