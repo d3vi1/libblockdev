@@ -26,10 +26,13 @@
 #include "common.h"
 
 /* ZFS FS sub-plugin: RESTRICTED per security review.
- * Supported: get_info, check_label, check_uuid, set_label (pool rename).
- * Not supported: mkfs, check, repair, resize, set_uuid.
+ * Supported: get_info, check_label, check_uuid.
+ * Not supported: mkfs, check, repair, resize, set_uuid, set_label.
  * mkfs/check/repair/resize are semantically incompatible with ZFS pools
  * and must go through the BD_PLUGIN_ZFS top-level plugin instead.
+ * set_label (pool rename) requires export/reimport and cannot safely
+ * preserve the original import context for rollback; it must go through
+ * a dedicated pool rename operation instead.
  */
 
 static volatile guint avail_deps = 0;
@@ -58,11 +61,11 @@ static const UtilDep deps[DEPS_LAST] = {
  */
 G_GNUC_INTERNAL gboolean
 bd_fs_zfs_is_tech_avail (BDFSTech tech G_GNUC_UNUSED, guint64 mode, GError **error) {
-    /* only QUERY and SET_LABEL modes are supported */
-    guint64 supported = BD_FS_TECH_MODE_QUERY | BD_FS_TECH_MODE_SET_LABEL;
+    /* only QUERY mode is supported */
+    guint64 supported = BD_FS_TECH_MODE_QUERY;
     if (mode & ~supported) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_TECH_UNAVAIL,
-                     "ZFS FS operations other than query and set_label are not supported through the generic FS interface. "
+                     "ZFS FS operations other than query are not supported through the generic FS interface. "
                      "Use the BD_PLUGIN_ZFS top-level plugin instead.");
         return FALSE;
     }
@@ -181,82 +184,20 @@ resolve_pool_name_from_device (const gchar *device, GError **error) {
  * @label: the new pool name (label)
  * @error: (out) (optional): place to store error (if any)
  *
- * Renames the ZFS pool that @device belongs to. This is done by
- * exporting the pool and re-importing it with the new name.
- * The pool must not have any busy datasets (mounted filesystems, etc.).
- * The pool name is resolved from @device using zdb(8). Both zpool and zdb
- * must be available.
+ * ZFS pool rename requires export/reimport and cannot safely preserve the
+ * original import context (search dirs, altroot, properties, etc.) for
+ * rollback. This function always returns an error directing the caller to
+ * use a dedicated pool rename operation instead.
  *
- * Returns: whether the pool was successfully renamed or not
+ * Returns: always %FALSE
  *
  * Tech category: %BD_FS_TECH_ZFS-%BD_FS_TECH_MODE_SET_LABEL
  */
-gboolean bd_fs_zfs_set_label (const gchar *device, const gchar *label, GError **error) {
-    /* To rename a ZFS pool we need the current pool name.
-     * The 'device' parameter is a block device that's a pool member.
-     * We resolve the pool name using zdb -l (no fallback).
-     * Then: zpool export <oldname> && zpool import <oldname> <newname>
-     */
-    gboolean success;
-    gchar *old_name = NULL;
-
-    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZDB_MASK, deps, DEPS_LAST, &deps_check_lock, error))
-        return FALSE;
-
-    /* Validate the new label */
-    if (!bd_fs_zfs_check_label (label, error))
-        return FALSE;
-
-    /* Resolve the pool name from the device using zdb -l.
-     * No fallback to zpool list -- that would be a fail-open vulnerability
-     * in multi-pool systems. */
-    old_name = resolve_pool_name_from_device (device, error);
-    if (!old_name)
-        return FALSE;
-
-    /* If same name, nothing to do */
-    if (g_strcmp0 (old_name, label) == 0) {
-        g_free (old_name);
-        return TRUE;
-    }
-
-    /* Export the pool */
-    {
-        const gchar *argv_export[] = {"zpool", "export", old_name, NULL};
-        success = bd_utils_exec_and_report_error (argv_export, NULL, error);
-        if (!success) {
-            g_prefix_error (error, "Failed to export pool '%s' for rename: ", old_name);
-            g_free (old_name);
-            return FALSE;
-        }
-    }
-
-    /* Import with new name */
-    {
-        const gchar *argv_import[] = {"zpool", "import", old_name, label, NULL};
-        success = bd_utils_exec_and_report_error (argv_import, NULL, error);
-        if (!success) {
-            /* Try to re-import with old name to recover */
-            GError *recover_error = NULL;
-            gboolean recovery_success;
-            const gchar *argv_recover[] = {"zpool", "import", old_name, NULL};
-            recovery_success = bd_utils_exec_and_report_error (argv_recover, NULL, &recover_error);
-
-            if (!recovery_success) {
-                /* Both rename import and recovery failed — the pool may be in an exported state */
-                g_prefix_error (error, "Recovery import also failed (%s); pool may be exported: ",
-                                recover_error->message);
-                g_error_free (recover_error);
-            }
-
-            g_prefix_error (error, "Failed to import pool '%s' as '%s': ", old_name, label);
-            g_free (old_name);
-            return FALSE;
-        }
-    }
-
-    g_free (old_name);
-    return TRUE;
+gboolean bd_fs_zfs_set_label (const gchar *device G_GNUC_UNUSED, const gchar *label G_GNUC_UNUSED, GError **error) {
+    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_NOT_SUPPORTED,
+                 "ZFS pool rename requires export/reimport and cannot be safely performed "
+                 "through the filesystem label interface. Use a dedicated pool rename operation instead.");
+    return FALSE;
 }
 
 /**

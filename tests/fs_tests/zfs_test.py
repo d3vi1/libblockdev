@@ -17,8 +17,7 @@ class ZfsTestAvailability(ZfsNoDevTestCase):
         """Verify that it is possible to check ZFS tech availability"""
         try:
             available = BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS,
-                                                  BlockDev.FSTechMode.QUERY |
-                                                  BlockDev.FSTechMode.SET_LABEL)
+                                                  BlockDev.FSTechMode.QUERY)
             self.assertTrue(available)
         except GLib.GError:
             self.skipTest("skipping ZFS: zpool or zdb not available")
@@ -37,8 +36,11 @@ class ZfsTestAvailability(ZfsNoDevTestCase):
         with self.assertRaisesRegex(GLib.GError, "not supported"):
             BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS, BlockDev.FSTechMode.RESIZE)
 
+        with self.assertRaisesRegex(GLib.GError, "not supported"):
+            BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS, BlockDev.FSTechMode.SET_LABEL)
+
     def test_zfs_zdb_dep(self):
-        """Verify that zdb is required for ZFS QUERY and SET_LABEL modes"""
+        """Verify that zdb is required for ZFS QUERY mode"""
         BlockDev.reinit(self.requested_plugins, True, None)
 
         # without zdb, QUERY should fail
@@ -46,64 +48,35 @@ class ZfsTestAvailability(ZfsNoDevTestCase):
             with self.assertRaisesRegex(GLib.GError, "The 'zdb' utility is not available"):
                 BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS, BlockDev.FSTechMode.QUERY)
 
-        # without zdb, SET_LABEL should fail
-        with utils.fake_path(all_but="zdb"):
-            with self.assertRaisesRegex(GLib.GError, "The 'zdb' utility is not available"):
-                BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS, BlockDev.FSTechMode.SET_LABEL)
-
-        # without zpool, both modes should fail
-        with utils.fake_path(all_but="zpool"):
-            with self.assertRaisesRegex(GLib.GError, "The 'zpool' utility is not available"):
-                BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS, BlockDev.FSTechMode.SET_LABEL)
-
+        # without zpool, QUERY should fail
         with utils.fake_path(all_but="zpool"):
             with self.assertRaisesRegex(GLib.GError, "The 'zpool' utility is not available"):
                 BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS, BlockDev.FSTechMode.QUERY)
 
 
-class ZfsTestSetLabelNoFallback(ZfsNoDevTestCase):
+class ZfsTestSetLabelUnsupported(ZfsNoDevTestCase):
 
-    def test_set_label_fails_on_nonexistent_device(self):
-        """Verify that set_label fails when pool cannot be resolved from device"""
-        try:
-            BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS,
-                                      BlockDev.FSTechMode.SET_LABEL)
-        except GLib.GError:
-            self.skipTest("skipping ZFS: zpool or zdb not available")
+    def test_set_label_always_fails(self):
+        """Verify that set_label always returns an error
 
-        with self.assertRaisesRegex(GLib.GError, "Failed to determine ZFS pool name"):
-            BlockDev.fs_zfs_set_label("/dev/nonexistent_device_xyz", "newpool")
-
-    def test_set_label_no_zpool_list_fallback(self):
-        """Verify that set_label does not fall back to 'zpool list' when zdb fails
-
-        This is the critical security test: in a multi-pool system, falling
-        back to 'the first pool from zpool list' could rename the wrong pool.
-        The function must fail closed when zdb cannot resolve the device.
+        ZFS pool rename requires export/reimport and cannot safely preserve
+        the original import context for rollback.  The FS label interface
+        must refuse the operation unconditionally.
         """
-        try:
-            BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS,
-                                      BlockDev.FSTechMode.SET_LABEL)
-        except GLib.GError:
-            self.skipTest("skipping ZFS: zpool or zdb not available")
+        with self.assertRaisesRegex(GLib.GError, "cannot be safely performed"):
+            BlockDev.fs_zfs_set_label("/dev/sda", "newpool")
 
-        # A bogus device that zdb -l will fail on should cause a hard failure,
-        # NOT a fallback to zpool list
-        with self.assertRaisesRegex(GLib.GError, "Failed to determine ZFS pool name"):
-            BlockDev.fs_zfs_set_label("/dev/null", "newpool")
+    def test_set_label_error_message(self):
+        """Verify that the error message directs to a dedicated rename operation"""
+        with self.assertRaisesRegex(GLib.GError, "dedicated pool rename operation"):
+            BlockDev.fs_zfs_set_label("/dev/sda", "newpool")
 
 
 class ZfsTestOptionDeviceRejection(ZfsNoDevTestCase):
 
-    def test_set_label_rejects_option_device(self):
-        """set_label must reject device paths starting with '-'"""
-        try:
-            BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS,
-                                      BlockDev.FSTechMode.SET_LABEL)
-        except GLib.GError:
-            self.skipTest("skipping ZFS: zpool or zdb not available")
-
-        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+    def test_set_label_rejects_unconditionally(self):
+        """set_label must reject all calls regardless of arguments"""
+        with self.assertRaisesRegex(GLib.GError, "cannot be safely performed"):
             BlockDev.fs_zfs_set_label("--help", "newname")
 
     def test_get_info_rejects_option_device(self):
