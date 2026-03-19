@@ -271,6 +271,20 @@ class ZfsOptionInjectionTestCase(ZfsPluginTest):
         with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
             BlockDev.zfs_encryption_change_key("pool/ds", "--help", None)
 
+    # ---- synthesized option payload hardening (comma in -o key=value) ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_mount_rejects_comma_in_mountpoint(self):
+        """dataset_mount must reject mountpoint containing commas (option separator in -o)"""
+        with self.assertRaisesRegex(GLib.GError, "cannot contain commas"):
+            BlockDev.zfs_dataset_mount("pool/ds", "/mnt/a,rw", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_change_key_rejects_comma_in_key_location(self):
+        """encryption_change_key must reject new_key_location containing commas"""
+        with self.assertRaisesRegex(GLib.GError, "cannot contain commas"):
+            BlockDev.zfs_encryption_change_key("pool/ds", "file:///key,file", None)
+
     # NOTE: bd_zfs_pool_get_vdevs() bugs (double-free on depth overflow and
     # regex recompilation in hot loop) were fixed in commit
     # fix/s1-4-vdev-parser-safety and verified by code review + defensive
