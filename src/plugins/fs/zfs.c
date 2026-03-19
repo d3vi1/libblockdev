@@ -117,7 +117,18 @@ void bd_fs_zfs_info_free (BDFSZfsInfo *data) {
  */
 static gchar *
 resolve_pool_name_from_device (const gchar *device, GError **error) {
-    const gchar *argv_zdb[] = {"zdb", "-l", device, NULL};
+    if (device == NULL || *device == '\0') {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Device path cannot be NULL or empty");
+        return NULL;
+    }
+    if (*device == '-') {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Device path cannot start with '-': %s", device);
+        return NULL;
+    }
+
+    const gchar *argv_zdb[] = {"zdb", "-l", "--", device, NULL};
     gchar *zdb_output = NULL;
     gchar *pool_name = NULL;
     gboolean success;
@@ -227,9 +238,16 @@ gboolean bd_fs_zfs_set_label (const gchar *device, const gchar *label, GError **
         if (!success) {
             /* Try to re-import with old name to recover */
             GError *recover_error = NULL;
+            gboolean recovery_success;
             const gchar *argv_recover[] = {"zpool", "import", old_name, NULL};
-            bd_utils_exec_and_report_error (argv_recover, NULL, &recover_error);
-            g_clear_error (&recover_error);
+            recovery_success = bd_utils_exec_and_report_error (argv_recover, NULL, &recover_error);
+
+            if (!recovery_success) {
+                /* Both rename import and recovery failed — the pool may be in an exported state */
+                g_prefix_error (error, "Recovery import also failed (%s); pool may be exported: ",
+                                recover_error->message);
+                g_error_free (recover_error);
+            }
 
             g_prefix_error (error, "Failed to import pool '%s' as '%s': ", old_name, label);
             g_free (old_name);

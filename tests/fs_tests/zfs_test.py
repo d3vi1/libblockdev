@@ -93,6 +93,31 @@ class ZfsTestSetLabelNoFallback(ZfsNoDevTestCase):
             BlockDev.fs_zfs_set_label("/dev/null", "newpool")
 
 
+class ZfsTestOptionDeviceRejection(ZfsNoDevTestCase):
+
+    def test_set_label_rejects_option_device(self):
+        """set_label must reject device paths starting with '-'"""
+        try:
+            BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS,
+                                      BlockDev.FSTechMode.SET_LABEL)
+        except GLib.GError:
+            self.skipTest("skipping ZFS: zpool or zdb not available")
+
+        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+            BlockDev.fs_zfs_set_label("--help", "newname")
+
+    def test_get_info_rejects_option_device(self):
+        """get_info must reject device paths starting with '-'"""
+        try:
+            BlockDev.fs_is_tech_avail(BlockDev.FSTech.ZFS,
+                                      BlockDev.FSTechMode.QUERY)
+        except GLib.GError:
+            self.skipTest("skipping ZFS: zpool or zdb not available")
+
+        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+            BlockDev.fs_zfs_get_info("--help")
+
+
 class ZfsTestGetInfoNoFallback(ZfsNoDevTestCase):
 
     def test_get_info_fails_on_nonexistent_device(self):
