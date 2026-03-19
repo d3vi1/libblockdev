@@ -818,6 +818,293 @@ class ZfsBookmarkInfoTypeTestCase(ZfsPluginTest):
                 self.assertIsInstance(bm.creation, int)
 
 
+class ZfsExtraArgInsertionTestCase(ZfsPluginTest):
+    """Tests that BDExtraArg entries are placed before '--' in ZFS command lines.
+
+    These tests hook into the exec logging to capture the actual argv that
+    would be executed, then verify that extras appear between the subcommand
+    options and the '--' separator (i.e. before positional args).
+
+    All functions will fail at execution time (no real pool/dataset exists),
+    but we only care about the argv ordering captured in the log.
+    """
+
+    log_messages = []
+
+    def _log_func(self, level, msg):
+        self.log_messages.append(msg)
+
+    def setUp(self):
+        self.log_messages = []
+        BlockDev.utils_init_logging(self._log_func)
+        BlockDev.utils_set_log_level(BlockDev.UTILS_LOG_INFO)
+        self.addCleanup(self._clean_up)
+
+    def _clean_up(self):
+        self.log_messages = []
+        BlockDev.utils_init_logging(None)
+        BlockDev.utils_set_log_level(BlockDev.UTILS_LOG_WARNING)
+
+    def _get_running_cmd(self):
+        """Extract the command string from 'Running [N] ...' log messages."""
+        import re
+        for msg in self.log_messages:
+            match = re.search(r'Running \[\d+\] (.+?) \.\.\.', msg)
+            if match:
+                return match.group(1)
+        return None
+
+    def _skip_unless_zfs_tools(self):
+        """Helper: skip the test if ZFS tools are not available."""
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.POOL, BlockDev.ZFSTechMode.QUERY)
+        except GLib.GError:
+            self.skipTest("skipping: ZFS tools not available")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_create_extras_before_separator(self):
+        """pool_create must place extras before '--' and positional args"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "ashift=12")
+        try:
+            BlockDev.zfs_pool_create("testpool", ["/dev/sda"], None, [ea])
+        except GLib.GError:
+            pass  # Expected — no actual pool
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd, "Expected a Running log entry")
+        # extras must be before '--'
+        self.assertIn("-o ashift=12 -- testpool", cmd)
+        # extras must NOT be after the positional args
+        self.assertNotIn("-- testpool /dev/sda -o", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_create_extras_with_raid_level(self):
+        """pool_create with raid_level must place extras before '--'"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "ashift=12")
+        try:
+            BlockDev.zfs_pool_create("testpool", ["/dev/sda", "/dev/sdb"], "mirror", [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-o ashift=12 -- testpool mirror", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_import_extras_before_separator(self):
+        """pool_import must place extras before '--' and positional args"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "readonly=on")
+        try:
+            BlockDev.zfs_pool_import("testpool", None, None, False, [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-o readonly=on -- testpool", cmd)
+        self.assertNotIn("-- testpool -o", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_import_extras_with_force_and_dirs(self):
+        """pool_import with force and search_dirs must place extras before '--'"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "readonly=on")
+        try:
+            BlockDev.zfs_pool_import("testpool", None, ["/dev"], True, [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        # Pattern: import -f -d /dev -o readonly=on -- testpool
+        self.assertIn("-f -d /dev -o readonly=on -- testpool", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_add_vdev_extras_before_separator(self):
+        """pool_add_vdev must place extras before '--' and positional args"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-f", "")
+        try:
+            BlockDev.zfs_pool_add_vdev("testpool", ["/dev/sda"], None, [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-f -- testpool", cmd)
+        self.assertNotIn("-- testpool /dev/sda -f", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_create_extras_before_separator(self):
+        """dataset_create must place extras before '--' and positional args"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "compression=lz4")
+        try:
+            BlockDev.zfs_dataset_create("testpool/ds", [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-o compression=lz4 -- testpool/ds", cmd)
+        self.assertNotIn("-- testpool/ds -o", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_mount_extras_before_separator(self):
+        """dataset_mount must place extras before '--' and positional args"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-v", "")
+        try:
+            BlockDev.zfs_dataset_mount("testpool/ds", None, [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-v -- testpool/ds", cmd)
+        self.assertNotIn("-- testpool/ds -v", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_mount_extras_after_mountpoint_option(self):
+        """dataset_mount with mountpoint must place extras after -o mountpoint=X but before '--'"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-v", "")
+        try:
+            BlockDev.zfs_dataset_mount("testpool/ds", "/mnt/test", [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-o mountpoint=/mnt/test -v -- testpool/ds", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_snapshot_create_extras_before_separator(self):
+        """snapshot_create must place extras before '--' and positional args"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "userref=backup")
+        try:
+            BlockDev.zfs_snapshot_create("testpool/ds@snap1", False, [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-o userref=backup -- testpool/ds@snap1", cmd)
+        self.assertNotIn("-- testpool/ds@snap1 -o", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_snapshot_create_recursive_extras_before_separator(self):
+        """snapshot_create with -r must place extras after -r but before '--'"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "userref=backup")
+        try:
+            BlockDev.zfs_snapshot_create("testpool/ds@snap1", True, [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-r -o userref=backup -- testpool/ds@snap1", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_snapshot_clone_extras_before_separator(self):
+        """snapshot_clone must place extras before '--' and positional args"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "mountpoint=/mnt/clone")
+        try:
+            BlockDev.zfs_snapshot_clone("testpool/ds@snap1", "testpool/clone1", [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-o mountpoint=/mnt/clone -- testpool/ds@snap1 testpool/clone1", cmd)
+        self.assertNotIn("-- testpool/ds@snap1 testpool/clone1 -o", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_zvol_create_extras_before_separator(self):
+        """zvol_create must place extras before '--' and positional args"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "compression=lz4")
+        try:
+            BlockDev.zfs_zvol_create("testpool/zvol1", 1073741824, False, [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-o compression=lz4 -- testpool/zvol1", cmd)
+        self.assertNotIn("-- testpool/zvol1 -o", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_zvol_create_sparse_extras_before_separator(self):
+        """zvol_create with sparse must place extras after -s but before '--'"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "compression=lz4")
+        try:
+            BlockDev.zfs_zvol_create("testpool/zvol1", 1073741824, True, [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-s -o compression=lz4 -- testpool/zvol1", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_create_multiple_extras(self):
+        """pool_create must handle multiple extras, all before '--'"""
+        self._skip_unless_zfs_tools()
+        ea1 = BlockDev.ExtraArg.new("-o", "ashift=12")
+        ea2 = BlockDev.ExtraArg.new("-o", "feature@lz4_compress=enabled")
+        try:
+            BlockDev.zfs_pool_create("testpool", ["/dev/sda"], None, [ea1, ea2])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-o ashift=12 -o feature@lz4_compress=enabled -- testpool", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_change_key_extras_before_separator(self):
+        """encryption_change_key must place extras before '--' and positional args"""
+        self._skip_unless_zfs_tools()
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.ENCRYPTION, BlockDev.ZFSTechMode.MODIFY)
+        except GLib.GError:
+            self.skipTest("skipping: encryption not available (OpenZFS < 0.8.0)")
+        ea = BlockDev.ExtraArg.new("-l", "")
+        try:
+            BlockDev.zfs_encryption_change_key("testpool/ds", None, [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        # With new_key_location=None: zfs change-key -i [extras...] -- <dataset>
+        self.assertIn("-i -l -- testpool/ds", cmd)
+        self.assertNotIn("-- testpool/ds -l", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_change_key_with_location_extras_before_separator(self):
+        """encryption_change_key with key_location must place extras before '--'"""
+        self._skip_unless_zfs_tools()
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.ENCRYPTION, BlockDev.ZFSTechMode.MODIFY)
+        except GLib.GError:
+            self.skipTest("skipping: encryption not available (OpenZFS < 0.8.0)")
+        ea = BlockDev.ExtraArg.new("-l", "")
+        try:
+            BlockDev.zfs_encryption_change_key("testpool/ds", "file:///key", [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        # zfs change-key -o keylocation=file:///key [extras...] -- <dataset>
+        self.assertIn("-o keylocation=file:///key -l -- testpool/ds", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_create_no_extras(self):
+        """pool_create with no extras must still produce correct command"""
+        self._skip_unless_zfs_tools()
+        try:
+            BlockDev.zfs_pool_create("testpool", ["/dev/sda"], None, None)
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("zpool create -- testpool /dev/sda", cmd)
+
+
 class ZfsVdevInfoFieldsTestCase(ZfsPluginTest):
     """Tests that BDZFSVdevInfo does not have removed alloc/space fields."""
 
