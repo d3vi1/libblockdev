@@ -2203,7 +2203,7 @@ static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line, gboolean ha
     else if (g_strcmp0 (fields[1], "bookmark") == 0)
         info->type = BD_ZFS_DATASET_TYPE_BOOKMARK;
     else
-        info->type = BD_ZFS_DATASET_TYPE_FILESYSTEM;
+        info->type = BD_ZFS_DATASET_TYPE_UNKNOWN;
 
     /* [2] mountpoint ("-" means none -> NULL) */
     if (g_strcmp0 (fields[2], "-") == 0 || g_strcmp0 (fields[2], "none") == 0)
@@ -2239,7 +2239,7 @@ static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line, gboolean ha
         else if (g_strcmp0 (fields[9], "unavailable") == 0)
             info->key_status = BD_ZFS_KEY_STATUS_UNAVAILABLE;
         else
-            info->key_status = BD_ZFS_KEY_STATUS_NONE;
+            info->key_status = BD_ZFS_KEY_STATUS_UNKNOWN;
 
         /* [10] mounted ("yes"/"no"/"-") */
         info->mounted = (g_strcmp0 (fields[10], "yes") == 0);
@@ -3275,7 +3275,7 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
  * Queries the encryption key status of a ZFS dataset by reading the
  * ``keystatus`` property.
  *
- * Returns: the #BDZFSKeyStatus of the dataset, or %BD_ZFS_KEY_STATUS_NONE on error
+ * Returns: the #BDZFSKeyStatus of the dataset, or %BD_ZFS_KEY_STATUS_UNKNOWN on error
  *
  * Tech category: %BD_ZFS_TECH_ENCRYPTION-%BD_ZFS_TECH_MODE_QUERY
  */
@@ -3284,23 +3284,23 @@ BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **erro
     gchar *output = NULL;
     gboolean success;
     gchar *value = NULL;
-    BDZFSKeyStatus ret = BD_ZFS_KEY_STATUS_NONE;
+    BDZFSKeyStatus ret = BD_ZFS_KEY_STATUS_UNKNOWN;
 
     if (!validate_name_not_option (dataset, "Dataset name", error))
-        return BD_ZFS_KEY_STATUS_NONE;
+        return BD_ZFS_KEY_STATUS_UNKNOWN;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
-        return BD_ZFS_KEY_STATUS_NONE;
+        return BD_ZFS_KEY_STATUS_UNKNOWN;
 
     if (!zfs_version_at_least (0, 8, 0, error)) {
         g_prefix_error (error, "ZFS encryption requires OpenZFS 0.8.0+: ");
-        return BD_ZFS_KEY_STATUS_NONE;
+        return BD_ZFS_KEY_STATUS_UNKNOWN;
     }
 
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
     if (!success) {
         g_free (output);
-        return BD_ZFS_KEY_STATUS_NONE;
+        return BD_ZFS_KEY_STATUS_UNKNOWN;
     }
 
     /* Strip trailing whitespace/newlines */
@@ -3311,7 +3311,7 @@ BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **erro
     else if (g_strcmp0 (value, "unavailable") == 0)
         ret = BD_ZFS_KEY_STATUS_UNAVAILABLE;
     else
-        ret = BD_ZFS_KEY_STATUS_NONE;
+        ret = BD_ZFS_KEY_STATUS_UNKNOWN;
 
     g_free (output);
     return ret;
