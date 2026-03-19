@@ -2575,6 +2575,11 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
                          "Mountpoint cannot be empty or start with '-'");
             return FALSE;
         }
+        if (strchr (mountpoint, ',')) {
+            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                         "Mountpoint path cannot contain commas: %s", mountpoint);
+            return FALSE;
+        }
     }
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
@@ -3296,6 +3301,11 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
         if (*new_key_location == '-') {
             g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
                          "New key location cannot start with '-'");
+            return FALSE;
+        }
+        if (strchr (new_key_location, ',')) {
+            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                         "New key location cannot contain commas: %s", new_key_location);
             return FALSE;
         }
     }
