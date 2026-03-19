@@ -2306,7 +2306,7 @@ BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **erro
  *
  * When @has_encryption is %FALSE:
  *   name, type, mountpoint, origin, used, avail, refer, compress, mounted
- * (9 fields) — encryption defaults to %NULL and key_status to NONE.
+ * (9 fields) — encryption defaults to %NULL and key_status to UNKNOWN.
  *
  * Returns: (transfer full): a new BDZFSDatasetInfo or %NULL on parse error
  */
@@ -2385,9 +2385,9 @@ static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line, gboolean ha
         /* [10] mounted ("yes"/"no"/"-") */
         info->mounted = (g_strcmp0 (fields[10], "yes") == 0);
     } else {
-        /* No encryption support — defaults */
+        /* No encryption support — status unknown (not queried) */
         info->encryption = NULL;
-        info->key_status = BD_ZFS_KEY_STATUS_NONE;
+        info->key_status = BD_ZFS_KEY_STATUS_UNKNOWN;
 
         /* [8] mounted ("yes"/"no"/"-") */
         info->mounted = (g_strcmp0 (fields[8], "yes") == 0);
