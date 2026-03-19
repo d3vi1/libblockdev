@@ -29,8 +29,10 @@
 #include "plugin_apis/nvme.c"
 #include "plugin_apis/smart.h"
 #include "plugin_apis/smart.c"
+#ifdef WITH_BD_ZFS
 #include "plugin_apis/zfs.h"
 #include "plugin_apis/zfs.c"
+#endif
 
 #if defined(__s390__) || defined(__s390x__)
 #include "plugin_apis/s390.h"
@@ -71,7 +73,11 @@ static gchar * default_plugin_so[BD_PLUGIN_UNDEF] = {
 #else
      "libbd_smartmontools.so.@MAJOR_VER@",
 #endif
+#ifdef WITH_BD_ZFS
     "libbd_zfs.so.@MAJOR_VER@",
+#else
+    NULL,
+#endif
 };
 static BDPluginStatus plugins[BD_PLUGIN_UNDEF] = {
     {{BD_PLUGIN_LVM, NULL}, NULL},
@@ -253,9 +259,11 @@ static void unload_plugins (void) {
         bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the smart plugin");
     plugins[BD_PLUGIN_SMART].handle = NULL;
 
+#ifdef WITH_BD_ZFS
     if (plugins[BD_PLUGIN_ZFS].handle && !unload_zfs (plugins[BD_PLUGIN_ZFS].handle))
         bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the zfs plugin");
     plugins[BD_PLUGIN_ZFS].handle = NULL;
+#endif
 }
 
 static void load_plugin_from_sonames (BDPlugin plugin, LoadFunc load_fn, void **handle, GSList *sonames) {
@@ -298,8 +306,10 @@ static void do_load (GSList **plugins_sonames) {
         load_plugin_from_sonames (BD_PLUGIN_NVME, load_nvme_from_plugin, &(plugins[BD_PLUGIN_NVME].handle), plugins_sonames[BD_PLUGIN_NVME]);
     if (!plugins[BD_PLUGIN_SMART].handle && plugins_sonames[BD_PLUGIN_SMART])
         load_plugin_from_sonames (BD_PLUGIN_SMART, load_smart_from_plugin, &(plugins[BD_PLUGIN_SMART].handle), plugins_sonames[BD_PLUGIN_SMART]);
+#ifdef WITH_BD_ZFS
     if (!plugins[BD_PLUGIN_ZFS].handle && plugins_sonames[BD_PLUGIN_ZFS])
         load_plugin_from_sonames (BD_PLUGIN_ZFS, load_zfs_from_plugin, &(plugins[BD_PLUGIN_ZFS].handle), plugins_sonames[BD_PLUGIN_ZFS]);
+#endif
 }
 
 static gboolean load_plugins (BDPluginSpec **require_plugins, gboolean reload, guint64 *num_loaded) {
@@ -333,6 +343,12 @@ static gboolean load_plugins (BDPluginSpec **require_plugins, gboolean reload, g
     /* do not load the s390 plugin by default if not on s390(x) */
     g_slist_free_full (plugins_sonames[BD_PLUGIN_S390], (GDestroyNotify) g_free);
     plugins_sonames[BD_PLUGIN_S390] = NULL;
+#endif
+
+#ifndef WITH_BD_ZFS
+    /* do not load the zfs plugin if compiled --without-zfs */
+    g_slist_free_full (plugins_sonames[BD_PLUGIN_ZFS], (GDestroyNotify) g_free);
+    plugins_sonames[BD_PLUGIN_ZFS] = NULL;
 #endif
 
     /* unload the previously loaded plugins if requested */
@@ -380,6 +396,12 @@ static gboolean load_plugins (BDPluginSpec **require_plugins, gboolean reload, g
             if (!require_plugins && (i == BD_PLUGIN_S390))
                 /* do not check the s390 plugin on different archs unless
                    explicitly required */
+                continue;
+#endif
+#ifndef WITH_BD_ZFS
+            if (!require_plugins && (i == BD_PLUGIN_ZFS))
+                /* do not check the zfs plugin if compiled --without-zfs
+                   unless explicitly required */
                 continue;
 #endif
             if (plugins[i].handle)

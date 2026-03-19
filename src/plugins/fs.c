@@ -41,7 +41,9 @@ extern gboolean bd_fs_nilfs2_is_tech_avail (BDFSTech tech, guint64 mode, GError 
 extern gboolean bd_fs_exfat_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
 extern gboolean bd_fs_btrfs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
 extern gboolean bd_fs_udf_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
+#ifdef WITH_BD_ZFS
 extern gboolean bd_fs_zfs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
+#endif
 
 /**
  * bd_fs_error_quark: (skip)
@@ -117,8 +119,10 @@ gboolean bd_fs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error) {
             return bd_fs_btrfs_is_tech_avail (tech, mode, error);
         case BD_FS_TECH_UDF:
             return bd_fs_udf_is_tech_avail (tech, mode, error);
+#ifdef WITH_BD_ZFS
         case BD_FS_TECH_ZFS:
             return bd_fs_zfs_is_tech_avail (tech, mode, error);
+#endif
         /* coverity[dead_error_begin] */
         default:
             /* this should never be reached (see the comparison with LAST_FS

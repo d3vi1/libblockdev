@@ -32,8 +32,11 @@ GIHEADERS = ${builddir}/plugin_apis/mdraid.h \
 	${builddir}/plugin_apis/fs.h \
 	${builddir}/plugin_apis/nvdimm.h \
 	${builddir}/plugin_apis/nvme.h \
-	${builddir}/plugin_apis/smart.h \
-	${builddir}/plugin_apis/zfs.h
+	${builddir}/plugin_apis/smart.h
+
+if WITH_ZFS
+GIHEADERS += ${builddir}/plugin_apis/zfs.h
+endif
 
 GIHEADERS += $(wildcard ${srcdir}/../utils/*.[ch])
 GIHEADERS += blockdev.c blockdev.h plugins.c plugins.h

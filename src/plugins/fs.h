@@ -81,4 +81,6 @@ gboolean bd_fs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
 #include "fs/exfat.h"
 #include "fs/btrfs.h"
 #include "fs/udf.h"
+#ifdef WITH_BD_ZFS
 #include "fs/zfs.h"
+#endif

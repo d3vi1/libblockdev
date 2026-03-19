@@ -64,6 +64,10 @@ if !WITH_S390
 DISTCHECK_CONFIGURE_FLAGS += --without-s390
 endif
 
+if !WITH_ZFS
+DISTCHECK_CONFIGURE_FLAGS += --without-zfs
+endif
+
 
 SUBDIRS = include src dist scripts data tools tests
 if WITH_GTK_DOC
