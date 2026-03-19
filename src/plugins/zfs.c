@@ -444,6 +444,9 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
     if (!validate_name_not_option (name, "Pool name", error))
         return FALSE;
 
+    if (raid_level && !validate_name_not_option (raid_level, "RAID level", error))
+        return FALSE;
+
     if (!vdevs || !vdevs[0]) {
         g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No vdevs given");
         return FALSE;
@@ -458,7 +461,7 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    /* zpool create [-f] -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
+    /* zpool create -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
     num_args = 4 + num_vdevs + (raid_level ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
@@ -1043,6 +1046,9 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
     if (!validate_name_not_option (name, "Pool name", error))
         return FALSE;
 
+    if (raid_level && !validate_name_not_option (raid_level, "RAID level", error))
+        return FALSE;
+
     if (!vdevs || !vdevs[0]) {
         g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL, "No vdevs given");
         return FALSE;
@@ -1057,7 +1063,7 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    /* zpool add [-f] -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
+    /* zpool add -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
     num_args = 4 + num_vdevs + (raid_level ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
@@ -1804,6 +1810,9 @@ BDZFSPropertyInfo* bd_zfs_pool_get_property (const gchar *name, const gchar *pro
     if (!validate_name_not_option (name, "Pool name", error))
         return NULL;
 
+    if (!validate_name_not_option (property, "Property name", error))
+        return NULL;
+
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
@@ -1849,10 +1858,13 @@ BDZFSPropertyInfo* bd_zfs_pool_get_property (const gchar *name, const gchar *pro
  */
 gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error) {
     gchar *prop_val = NULL;
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[5] = {NULL};
     gboolean success;
 
     if (!validate_name_not_option (name, "Pool name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (property, "Property name", error))
         return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
@@ -1863,9 +1875,8 @@ gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, con
     argv[0] = "zpool";
     argv[1] = "set";
     argv[2] = prop_val;
-    argv[3] = "--";
-    argv[4] = name;
-    argv[5] = NULL;
+    argv[3] = name;
+    argv[4] = NULL;
 
     success = bd_utils_exec_and_report_error (argv, NULL, error);
     g_free (prop_val);
@@ -2334,6 +2345,9 @@ BDZFSPropertyInfo* bd_zfs_dataset_get_property (const gchar *name, const gchar *
     if (!validate_name_not_option (name, "Dataset name", error))
         return NULL;
 
+    if (!validate_name_not_option (property, "Property name", error))
+        return NULL;
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
@@ -2379,10 +2393,13 @@ BDZFSPropertyInfo* bd_zfs_dataset_get_property (const gchar *name, const gchar *
  */
 gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, const gchar *value, GError **error) {
     gchar *prop_val = NULL;
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[5] = {NULL};
     gboolean success;
 
     if (!validate_name_not_option (name, "Dataset name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (property, "Property name", error))
         return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
@@ -2393,9 +2410,8 @@ gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, 
     argv[0] = "zfs";
     argv[1] = "set";
     argv[2] = prop_val;
-    argv[3] = "--";
-    argv[4] = name;
-    argv[5] = NULL;
+    argv[3] = name;
+    argv[4] = NULL;
 
     success = bd_utils_exec_and_report_error (argv, NULL, error);
     g_free (prop_val);
@@ -3092,7 +3108,7 @@ gboolean bd_zfs_zvol_destroy (const gchar *name, gboolean recursive, gboolean fo
  */
 gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error) {
     gchar *volsize_str = NULL;
-    const gchar *argv[6] = {NULL};
+    const gchar *argv[5] = {NULL};
     gboolean success;
 
     if (!validate_name_not_option (name, "Zvol name", error))
@@ -3106,9 +3122,8 @@ gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error
     argv[0] = "zfs";
     argv[1] = "set";
     argv[2] = volsize_str;
-    argv[3] = "--";
-    argv[4] = name;
-    argv[5] = NULL;
+    argv[3] = name;
+    argv[4] = NULL;
 
     success = bd_utils_exec_and_report_error (argv, NULL, error);
     g_free (volsize_str);
@@ -3208,6 +3223,9 @@ gboolean bd_zfs_dataset_inherit_property (const gchar *name, const gchar *proper
     const gchar *argv[] = {"zfs", "inherit", "--", property, name, NULL};
 
     if (!validate_name_not_option (name, "Dataset name", error))
+        return FALSE;
+
+    if (!validate_name_not_option (property, "Property name", error))
         return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))

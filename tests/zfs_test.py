@@ -200,3 +200,23 @@ class ZfsOptionInjectionTestCase(ZfsPluginTest):
         """pool_scrub_start must reject pool names starting with '-'"""
         with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
             BlockDev.zfs_pool_scrub_start("-s")
+
+    # ---- property validation ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_get_property_rejects_option_property(self):
+        """pool_get_property must reject property names starting with '-'"""
+        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+            BlockDev.zfs_pool_get_property("testpool", "--help")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_get_property_rejects_option_property(self):
+        """dataset_get_property must reject property names starting with '-'"""
+        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+            BlockDev.zfs_dataset_get_property("pool/ds", "--help")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_inherit_property_rejects_option_property(self):
+        """dataset_inherit_property must reject property names starting with '-'"""
+        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+            BlockDev.zfs_dataset_inherit_property("pool/ds", "--help")
