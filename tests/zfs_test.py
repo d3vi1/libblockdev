@@ -741,6 +741,62 @@ class ZfsDatasetInfoEncryptionFieldsTestCase(ZfsPluginTest):
         self.assertIsNotNone(info.encryption,
                              "encryption field should be populated on OpenZFS >= 0.8.0")
 
+    @tag_test(TestTags.NOSTORAGE)
+    def test_key_status_none_on_unencrypted_dataset(self):
+        """Unencrypted dataset must have key_status NONE (not UNKNOWN) on OpenZFS >= 0.8.0.
+
+        When encryption is supported and the CLI explicitly returns "-" for
+        keystatus, the parser must set NONE (meaning "no encryption") rather
+        than UNKNOWN (meaning "not queried").
+        """
+        self._skip_unless_zfs_tools()
+        if not self._has_encryption_support():
+            self.skipTest("skipping: OpenZFS < 0.8.0, no encryption support")
+
+        try:
+            infos = BlockDev.zfs_dataset_list(None, False)
+        except GLib.GError:
+            self.skipTest("skipping: no pools available to query")
+
+        if not infos:
+            self.skipTest("skipping: no datasets to inspect")
+
+        # Find an unencrypted dataset (encryption == "off")
+        unencrypted = [i for i in infos if i.encryption == "off"]
+        if not unencrypted:
+            self.skipTest("skipping: no unencrypted datasets to inspect")
+
+        info = unencrypted[0]
+        self.assertEqual(info.key_status, BlockDev.ZFSKeyStatus.NONE,
+                         "unencrypted dataset key_status must be NONE, not UNKNOWN")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_key_status_unknown_when_encryption_not_queried(self):
+        """On pre-0.8.0 ZFS, key_status must be UNKNOWN (not NONE).
+
+        When the encryption feature is unavailable, parse_dataset_info_line
+        never receives keystatus from the CLI.  The result must be UNKNOWN
+        (meaning "not queried") rather than NONE (meaning "no encryption").
+        This test only runs on pre-0.8.0 OpenZFS systems.
+        """
+        self._skip_unless_zfs_tools()
+        if self._has_encryption_support():
+            self.skipTest("skipping: OpenZFS >= 0.8.0 — encryption is queried")
+
+        try:
+            infos = BlockDev.zfs_dataset_list(None, False)
+        except GLib.GError:
+            self.skipTest("skipping: no pools available to query")
+
+        if not infos:
+            self.skipTest("skipping: no datasets to inspect")
+
+        info = infos[0]
+        self.assertEqual(info.key_status, BlockDev.ZFSKeyStatus.UNKNOWN,
+                         "key_status must be UNKNOWN when encryption was not queried")
+        self.assertIsNone(info.encryption,
+                          "encryption field must be None when not queried")
+
 
 class ZfsUnknownEnumValuesTestCase(ZfsPluginTest):
     """Tests that UNKNOWN enum values exist and are used for error/unrecognized states."""
