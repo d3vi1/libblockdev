@@ -117,7 +117,12 @@ void bd_fs_zfs_info_free (BDFSZfsInfo *data) {
  */
 static gchar *
 resolve_pool_name_from_device (const gchar *device, GError **error) {
-    if (device && *device == '-') {
+    if (device == NULL || *device == '\0') {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Device path cannot be NULL or empty");
+        return NULL;
+    }
+    if (*device == '-') {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
                      "Device path cannot start with '-': %s", device);
         return NULL;
