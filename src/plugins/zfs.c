@@ -867,6 +867,7 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
     gint stack_top = -1;
 
     GPtrArray *top_vdevs;
+    GRegex *ws_regex = NULL;
     gint root_indent = -1;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
@@ -883,7 +884,12 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
 
     top_vdevs = g_ptr_array_new ();
 
-    GRegex *ws_regex = g_regex_new ("\\s+", 0, 0, NULL);
+    ws_regex = g_regex_new ("\\s+", 0, 0, error);
+    if (!ws_regex) {
+        g_ptr_array_free (top_vdevs, TRUE);
+        g_strfreev (lines);
+        return NULL;
+    }
 
     for (line_p = lines; *line_p; line_p++) {
         gchar *line = *line_p;
