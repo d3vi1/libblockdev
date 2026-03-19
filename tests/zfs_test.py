@@ -220,3 +220,9 @@ class ZfsOptionInjectionTestCase(ZfsPluginTest):
         """dataset_inherit_property must reject property names starting with '-'"""
         with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
             BlockDev.zfs_dataset_inherit_property("pool/ds", "--help")
+
+    # NOTE: bd_zfs_pool_get_vdevs() bugs (double-free on depth overflow and
+    # regex recompilation in hot loop) were fixed in commit
+    # fix/s1-4-vdev-parser-safety and verified by code review + defensive
+    # reordering.  Runtime tests require a live ZFS pool with deeply nested
+    # vdevs which is impractical in the unit-test environment.
