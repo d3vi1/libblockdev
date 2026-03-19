@@ -1,0 +1,9 @@
+#!/bin/bash
+# Fake zfs tool pretending to be OpenZFS 0.6.3 (too old for bookmarks/encryption)
+
+if [ "$1" = "version" ]; then
+    echo "zfs-0.6.3-1"
+    exit 0
+fi
+echo "fake zfs: unsupported command" >&2
+exit 1

@@ -501,6 +501,93 @@ too_old:
 }
 
 /**
+ * BDZFSRuntimeCaps:
+ *
+ * Caches per-operation capability states detected at runtime by inspecting
+ * the installed OpenZFS version and the help output of the CLI tools.
+ * Probed once on first use and reset by bd_zfs_close().
+ */
+typedef struct {
+    gboolean probed;
+    gboolean trim_supported;        /* zpool trim — OpenZFS 0.8.0+ */
+    gboolean scrub_pause_supported; /* zpool scrub -p — OpenZFS 0.8.0+ */
+    gboolean bookmark_supported;    /* zfs bookmark — OpenZFS 0.6.4+ */
+    gboolean encryption_supported;  /* zfs load-key / change-key — OpenZFS 0.8.0+ */
+    gboolean initialize_supported;  /* zpool initialize — OpenZFS 0.8.0+ */
+} BDZFSRuntimeCaps;
+
+static BDZFSRuntimeCaps runtime_caps = { FALSE, FALSE, FALSE, FALSE, FALSE, FALSE };
+
+/**
+ * probe_runtime_caps:
+ *
+ * Probes once (guarded by probed flag) the per-operation capabilities of
+ * the installed OpenZFS tools.  Uses version checks to determine feature
+ * support — the same thresholds that were previously scattered across
+ * individual functions.
+ *
+ * Must be called after check_deps() has confirmed tool availability.
+ *
+ * Thread-safety: the version probing calls (zfs_version_at_least) acquire
+ * deps_check_lock internally, so this function must NOT hold that lock
+ * while calling them.  Instead, probing is done outside the lock and the
+ * results are written under the lock with a double-check on the probed
+ * flag.  Redundant probes are harmless (idempotent).
+ */
+static void
+probe_runtime_caps (void) {
+    GError *error = NULL;
+    gboolean bm, v080;
+
+    if (runtime_caps.probed)
+        return;
+
+    /* Probe outside the lock — zfs_version_at_least acquires deps_check_lock */
+    bm = zfs_version_at_least (0, 6, 4, &error);
+    if (error)
+        g_clear_error (&error);
+
+    v080 = zfs_version_at_least (0, 8, 0, &error);
+    if (error)
+        g_clear_error (&error);
+
+    /* Write results under the lock */
+    g_mutex_lock (&deps_check_lock);
+    if (!runtime_caps.probed) {
+        runtime_caps.bookmark_supported = bm;
+        runtime_caps.trim_supported = v080;
+        runtime_caps.scrub_pause_supported = v080;
+        runtime_caps.encryption_supported = v080;
+        runtime_caps.initialize_supported = v080;
+        runtime_caps.probed = TRUE;
+    }
+    g_mutex_unlock (&deps_check_lock);
+}
+
+/**
+ * ensure_cap:
+ * @op_name: human-readable operation name for error messages
+ * @cap_value: the cached capability flag to check
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Checks that a specific runtime capability is available.  Must be called
+ * after probe_runtime_caps().  Sets a %BD_ZFS_ERROR_TECH_UNAVAIL error
+ * with a descriptive message when the capability is not supported.
+ *
+ * Returns: %TRUE if the capability is available, %FALSE otherwise
+ */
+static gboolean
+ensure_cap (const gchar *op_name, gboolean cap_value, GError **error) {
+    if (!cap_value) {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_TECH_UNAVAIL,
+                     "%s is not supported by the installed version of OpenZFS",
+                     op_name);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+/**
  * bd_zfs_init:
  *
  * Initializes the plugin. **This function is called automatically by the
@@ -526,6 +613,7 @@ void bd_zfs_close (void) {
     g_mutex_lock (&deps_check_lock);
     g_free (cached_zfs_version);
     cached_zfs_version = NULL;
+    memset (&runtime_caps, 0, sizeof (runtime_caps));
     g_mutex_unlock (&deps_check_lock);
 }
 
@@ -1737,10 +1825,9 @@ gboolean bd_zfs_pool_scrub_pause (const gchar *name, GError **error) {
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (!zfs_version_at_least (0, 8, 0, error)) {
-        g_prefix_error (error, "ZFS scrub pause requires OpenZFS 0.8.0+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("Scrub pause", runtime_caps.scrub_pause_supported, error))
         return FALSE;
-    }
 
     return bd_utils_exec_and_report_error (argv, NULL, error);
 }
@@ -2032,10 +2119,9 @@ gboolean bd_zfs_pool_trim_start (const gchar *name, const gchar *vdev, GError **
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (!zfs_version_at_least (0, 8, 0, error)) {
-        g_prefix_error (error, "ZFS trim requires OpenZFS 0.8.0+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("TRIM", runtime_caps.trim_supported, error))
         return FALSE;
-    }
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "trim";
@@ -2073,10 +2159,9 @@ gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **e
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (!zfs_version_at_least (0, 8, 0, error)) {
-        g_prefix_error (error, "ZFS trim requires OpenZFS 0.8.0+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("TRIM", runtime_caps.trim_supported, error))
         return FALSE;
-    }
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "trim";
@@ -3327,10 +3412,9 @@ gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, G
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (!zfs_version_at_least (0, 6, 4, error)) {
-        g_prefix_error (error, "ZFS bookmarks require OpenZFS 0.6.4+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("Bookmarks", runtime_caps.bookmark_supported, error))
         return FALSE;
-    }
 
     return bd_utils_exec_and_report_error (argv, NULL, error);
 }
@@ -3355,10 +3439,9 @@ gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error) {
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (!zfs_version_at_least (0, 6, 4, error)) {
-        g_prefix_error (error, "ZFS bookmarks require OpenZFS 0.6.4+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("Bookmarks", runtime_caps.bookmark_supported, error))
         return FALSE;
-    }
 
     return bd_utils_exec_and_report_error (argv, NULL, error);
 }
@@ -3391,10 +3474,9 @@ BDZFSBookmarkInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
-    if (!zfs_version_at_least (0, 6, 4, error)) {
-        g_prefix_error (error, "ZFS bookmarks require OpenZFS 0.6.4+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("Bookmarks", runtime_caps.bookmark_supported, error))
         return NULL;
-    }
 
     /* zfs list -H -p -t bookmark -o name,creation [-- dataset] NULL */
     num_args = 8 + (dataset ? 2 : 0) + 1;
@@ -3485,10 +3567,9 @@ gboolean bd_zfs_encryption_load_key (const gchar *dataset, const gchar *key_loca
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (!zfs_version_at_least (0, 8, 0, error)) {
-        g_prefix_error (error, "ZFS encryption requires OpenZFS 0.8.0+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("Encryption", runtime_caps.encryption_supported, error))
         return FALSE;
-    }
 
     if (key_location == NULL) {
         /* Use the dataset's own keylocation property */
@@ -3526,10 +3607,9 @@ gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error) {
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (!zfs_version_at_least (0, 8, 0, error)) {
-        g_prefix_error (error, "ZFS encryption requires OpenZFS 0.8.0+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("Encryption", runtime_caps.encryption_supported, error))
         return FALSE;
-    }
 
     return bd_utils_exec_and_report_error (argv, NULL, error);
 }
@@ -3571,10 +3651,9 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (!zfs_version_at_least (0, 8, 0, error)) {
-        g_prefix_error (error, "ZFS encryption requires OpenZFS 0.8.0+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("Encryption", runtime_caps.encryption_supported, error))
         return FALSE;
-    }
 
     if (new_key_location == NULL) {
         /* Inherit key from parent */
@@ -3687,10 +3766,9 @@ BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **erro
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return BD_ZFS_KEY_STATUS_UNKNOWN;
 
-    if (!zfs_version_at_least (0, 8, 0, error)) {
-        g_prefix_error (error, "ZFS encryption requires OpenZFS 0.8.0+: ");
+    probe_runtime_caps ();
+    if (!ensure_cap ("Encryption", runtime_caps.encryption_supported, error))
         return BD_ZFS_KEY_STATUS_UNKNOWN;
-    }
 
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
     if (!success) {
