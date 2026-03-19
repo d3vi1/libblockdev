@@ -1,4 +1,7 @@
 API_FILES := $(wildcard ${srcdir}/*.api)
+if !WITH_ZFS
+API_FILES := $(filter-out %/zfs.api,${API_FILES})
+endif
 SOURCE_FILES := $(patsubst %.api,%.c,${API_FILES})
 HEADER_FILES := $(patsubst %.api,%.h,${API_FILES})
 

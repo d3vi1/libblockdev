@@ -174,8 +174,12 @@ static const BDFSFeatures fs_features[BD_FS_LAST_FS] = {
       .partition_type = "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
       .min_size = 2 MiB,
       .max_size = 16 TiB },
+#ifdef WITH_BD_ZFS
     /* ZFS -- restricted: only label (pool rename) through generic dispatch */
     { .configure = BD_FS_SUPPORT_SET_LABEL },
+#else
+    { 0 },
+#endif
 };
 
 /**
@@ -314,6 +318,7 @@ const BDFSInfo fs_info[BD_FS_LAST_FS] = {
       .label_util = "udflabel",
       .info_util = "udfinfo",
       .uuid_util = "udflabel" },
+#ifdef WITH_BD_ZFS
     /* ZFS -- restricted: only query via top-level ZFS plugin */
     { .type = "zfs",
       .mkfs_util = NULL,
@@ -324,6 +329,9 @@ const BDFSInfo fs_info[BD_FS_LAST_FS] = {
       .label_util = "zpool",
       .info_util = "zpool",
       .uuid_util = NULL },
+#else
+    { 0 },
+#endif
 };
 
 /**
@@ -378,8 +386,10 @@ static BDFSTech fstype_to_tech (const gchar *fstype) {
         return BD_FS_TECH_BTRFS;
     } else if (g_strcmp0 (fstype, "udf") == 0) {
         return BD_FS_TECH_UDF;
+#ifdef WITH_BD_ZFS
     } else if (g_strcmp0 (fstype, "zfs") == 0 || g_strcmp0 (fstype, "zfs_member") == 0) {
         return BD_FS_TECH_ZFS;
+#endif
     } else {
         return BD_FS_TECH_GENERIC;
     }
@@ -1222,6 +1232,7 @@ static gboolean device_operation (const gchar *device, const gchar *fstype, BDFS
             default:
                 g_assert_not_reached ();
         }
+#ifdef WITH_BD_ZFS
     } else if (g_strcmp0 (detected_fstype, "zfs") == 0 || g_strcmp0 (detected_fstype, "zfs_member") == 0) {
         switch (op) {
             case BD_FS_RESIZE:
@@ -1241,6 +1252,7 @@ static gboolean device_operation (const gchar *device, const gchar *fstype, BDFS
             default:
                 g_assert_not_reached ();
         }
+#endif
     }
     switch (op) {
         case BD_FS_RESIZE:
@@ -1532,6 +1544,7 @@ guint64 bd_fs_get_size (const gchar *device, const gchar *fstype, GError **error
             bd_fs_udf_info_free (info);
         }
         return size;
+#ifdef WITH_BD_ZFS
     } else if (g_strcmp0 (detected_fstype, "zfs") == 0 || g_strcmp0 (detected_fstype, "zfs_member") == 0) {
         BDFSZfsInfo *info = bd_fs_zfs_get_info (device, error);
         if (info) {
@@ -1539,6 +1552,7 @@ guint64 bd_fs_get_size (const gchar *device, const gchar *fstype, GError **error
             bd_fs_zfs_info_free (info);
         }
         return size;
+#endif
     } else {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_NOT_SUPPORTED,
                     "Getting size of filesystem '%s' is not supported.", detected_fstype);
@@ -1619,6 +1633,7 @@ guint64 bd_fs_get_free_space (const gchar *device, const gchar *fstype, GError *
             bd_fs_btrfs_info_free (info);
         }
         return size;
+#ifdef WITH_BD_ZFS
     } else if (g_strcmp0 (detected_fstype, "zfs") == 0 || g_strcmp0 (detected_fstype, "zfs_member") == 0) {
         BDFSZfsInfo *info = bd_fs_zfs_get_info (device, error);
         if (info) {
@@ -1626,6 +1641,7 @@ guint64 bd_fs_get_free_space (const gchar *device, const gchar *fstype, GError *
             bd_fs_zfs_info_free (info);
         }
         return size;
+#endif
     } else {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_NOT_SUPPORTED,
                     "Getting free space on filesystem '%s' is not supported.", detected_fstype);
