@@ -687,6 +687,12 @@ autoreconf -ivf
 find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 
 
+%check
+%if %{with_zfs}
+python3 tests/run_tests.py --include-tags nostorage zfs_test
+%endif
+
+
 %ldconfig_scriptlets
 %ldconfig_scriptlets utils
 
