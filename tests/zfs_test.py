@@ -261,7 +261,7 @@ class ZfsVersionTestCase(ZfsPluginTest):
 
     @tag_test(TestTags.NOSTORAGE)
     def test_get_version_is_cached(self):
-        """get_zfs_version returns the same pointer on subsequent calls"""
+        """get_zfs_version returns the same value on subsequent calls"""
         try:
             BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.POOL, BlockDev.ZFSTechMode.QUERY)
         except GLib.GError:

@@ -313,7 +313,12 @@ normalize_zfs_version (const gchar *raw) {
     if (end == start)
         return NULL;
 
-    return g_strndup (start, (gsize)(end - start));
+    gchar *result = g_strndup (start, (gsize)(end - start));
+    if (!strchr (result, '.')) {
+        g_free (result);
+        return NULL;
+    }
+    return result;
 }
 
 /**
@@ -342,11 +347,10 @@ probe_zfs_version (GError **error) {
         return cached_zfs_version;
     }
 
-    g_mutex_unlock (&deps_check_lock);
-
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
     if (!success) {
         g_free (output);
+        g_mutex_unlock (&deps_check_lock);
         return NULL;
     }
 
@@ -367,16 +371,13 @@ probe_zfs_version (GError **error) {
     g_strfreev (lines);
 
     if (!normalized) {
+        g_mutex_unlock (&deps_check_lock);
         g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
                      "Failed to parse ZFS version from 'zfs version' output");
         return NULL;
     }
 
-    g_mutex_lock (&deps_check_lock);
-    if (!cached_zfs_version)
-        cached_zfs_version = normalized;
-    else
-        g_free (normalized);
+    cached_zfs_version = normalized;
     g_mutex_unlock (&deps_check_lock);
 
     return cached_zfs_version;
