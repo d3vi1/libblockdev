@@ -117,8 +117,6 @@ typedef struct BDZFSVdevInfo {
     gchar *path;
     BDZFSVdevType type;
     BDZFSVdevState state;
-    guint64 alloc;
-    guint64 space;
     guint64 read_errors;
     guint64 write_errors;
     guint64 checksum_errors;
@@ -155,6 +153,14 @@ typedef struct BDZFSSnapshotInfo {
 
 void bd_zfs_snapshot_info_free (BDZFSSnapshotInfo *info);
 BDZFSSnapshotInfo* bd_zfs_snapshot_info_copy (BDZFSSnapshotInfo *info);
+
+typedef struct BDZFSBookmarkInfo {
+    gchar *name;
+    guint64 creation;  /* creation timestamp (Unix epoch seconds) */
+} BDZFSBookmarkInfo;
+
+void bd_zfs_bookmark_info_free (BDZFSBookmarkInfo *info);
+BDZFSBookmarkInfo* bd_zfs_bookmark_info_copy (BDZFSBookmarkInfo *info);
 
 typedef struct BDZFSPropertyInfo {
     gchar *name;
@@ -258,7 +264,7 @@ gboolean bd_zfs_snapshot_release (const gchar *snapshot, const gchar *tag, GErro
 
 gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, GError **error);
 gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error);
-BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error);
+BDZFSBookmarkInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error);
 
 gboolean bd_zfs_encryption_load_key (const gchar *dataset, const gchar *key_location, GError **error);
 gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error);
