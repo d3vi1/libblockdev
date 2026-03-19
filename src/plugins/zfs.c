@@ -867,6 +867,7 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
     gint stack_top = -1;
 
     GPtrArray *top_vdevs;
+    GRegex *ws_regex = NULL;
     gint root_indent = -1;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
@@ -882,6 +883,13 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
     g_free (output);
 
     top_vdevs = g_ptr_array_new ();
+
+    ws_regex = g_regex_new ("\\s+", 0, 0, error);
+    if (!ws_regex) {
+        g_ptr_array_free (top_vdevs, TRUE);
+        g_strfreev (lines);
+        return NULL;
+    }
 
     for (line_p = lines; *line_p; line_p++) {
         gchar *line = *line_p;
@@ -932,11 +940,11 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
          * portion (p already past leading whitespace). First strip any
          * trailing whitespace too. */
         gchar *trimmed = g_strstrip (g_strdup (p));
-        gchar **fields = g_regex_split_simple ("\\s+", trimmed, 0, 0);
+        gchar **fields = g_regex_split (ws_regex, trimmed, 0);
         g_free (trimmed);
         guint num_fields = g_strv_length (fields);
 
-        /* g_regex_split_simple may produce trailing empty string */
+        /* g_regex_split may produce trailing empty string */
         if (num_fields > 0 && fields[num_fields - 1][0] == '\0')
             num_fields--;
 
@@ -970,6 +978,21 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
         while (stack_top >= 0 && stack_indent[stack_top] >= indent)
             stack_top--;
 
+        /* Check depth BEFORE linking vdev into the tree so that on overflow
+         * we can free the unlinked vdev and the tree independently without
+         * a double-free. */
+        if (stack_top + 1 >= 64) {
+            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
+                         "Vdev tree depth exceeds maximum (64) for pool '%s'", name);
+            bd_zfs_vdev_info_free (vdev);
+            for (guint i = 0; i < top_vdevs->len; i++)
+                bd_zfs_vdev_info_free (g_ptr_array_index (top_vdevs, i));
+            g_ptr_array_free (top_vdevs, TRUE);
+            g_strfreev (lines);
+            g_regex_unref (ws_regex);
+            return NULL;
+        }
+
         if (stack_top < 0) {
             /* This is a top-level vdev (direct child of root) */
             g_ptr_array_add (top_vdevs, vdev);
@@ -993,21 +1016,12 @@ BDZFSVdevInfo** bd_zfs_pool_get_vdevs (const gchar *name, GError **error) {
 
         /* Push this vdev onto the stack */
         stack_top++;
-        if (stack_top >= 64) {
-            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
-                         "Vdev tree depth exceeds maximum (64) for pool '%s'", name);
-            bd_zfs_vdev_info_free (vdev);
-            for (guint i = 0; i < top_vdevs->len; i++)
-                bd_zfs_vdev_info_free (g_ptr_array_index (top_vdevs, i));
-            g_ptr_array_free (top_vdevs, TRUE);
-            g_strfreev (lines);
-            return NULL;
-        }
         stack[stack_top] = vdev;
         stack_indent[stack_top] = indent;
     }
 
     g_strfreev (lines);
+    g_regex_unref (ws_regex);
 
     if (top_vdevs->len == 0) {
         g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
