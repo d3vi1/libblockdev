@@ -403,13 +403,24 @@ zfs_version_at_least (guint major, guint minor, guint patch, GError **error) {
         return FALSE;
 
     guint v_major = 0, v_minor = 0, v_patch = 0;
-    sscanf (version, "%u.%u.%u", &v_major, &v_minor, &v_patch);
+    int parsed = sscanf (version, "%u.%u.%u", &v_major, &v_minor, &v_patch);
+    if (parsed < 2) {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_PARSE,
+                     "Failed to parse cached ZFS version '%s'", version);
+        return FALSE;
+    }
 
     if (v_major > major) return TRUE;
-    if (v_major < major) return FALSE;
+    if (v_major < major) goto too_old;
     if (v_minor > minor) return TRUE;
-    if (v_minor < minor) return FALSE;
-    return v_patch >= patch;
+    if (v_minor < minor) goto too_old;
+    if (v_patch >= patch) return TRUE;
+
+too_old:
+    g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_TECH_UNAVAIL,
+                 "Installed OpenZFS %s is older than required %u.%u.%u",
+                 version, major, minor, patch);
+    return FALSE;
 }
 
 /**
