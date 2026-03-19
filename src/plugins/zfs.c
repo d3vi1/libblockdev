@@ -702,10 +702,12 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
                              const BDExtraArg **extra, GError **error) {
     const gchar **argv = NULL;
     guint num_vdevs = 0;
+    guint num_extra = 0;
     guint num_args = 0;
     guint next_arg = 0;
     gboolean success = FALSE;
     const gchar **vdev_p = NULL;
+    const BDExtraArg **extra_p = NULL;
 
     if (!bd_zfs_validate_pool_name (name, error))
         return FALSE;
@@ -727,12 +729,29 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    /* zpool create -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
-    num_args = 4 + num_vdevs + (raid_level ? 1 : 0) + 1;
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                num_extra++;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                num_extra++;
+        }
+    }
+
+    /* zpool create [extras...] -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
+    num_args = 4 + num_extra + num_vdevs + (raid_level ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "create";
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                argv[next_arg++] = (*extra_p)->opt;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                argv[next_arg++] = (*extra_p)->val;
+        }
+    }
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     if (raid_level)
@@ -741,7 +760,7 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
         argv[next_arg++] = *vdev_p;
     argv[next_arg] = NULL;
 
-    success = bd_utils_exec_and_report_error (argv, extra, error);
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
     g_free (argv);
     return success;
 }
@@ -834,8 +853,10 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
     guint num_args = 0;
     guint next_arg = 0;
     guint num_dirs = 0;
+    guint num_extra = 0;
     gboolean success = FALSE;
     const gchar **dir_p = NULL;
+    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name_or_guid, "Pool name or GUID", error))
         return FALSE;
@@ -851,8 +872,17 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
             num_dirs++;
     }
 
-    /* zpool import [-f] [-d dir1 -d dir2 ...] -- <name_or_guid> [new_name] NULL */
-    num_args = 4 + (force ? 1 : 0) + (num_dirs * 2) + (new_name ? 1 : 0) + 1;
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                num_extra++;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                num_extra++;
+        }
+    }
+
+    /* zpool import [-f] [-d dir1 -d dir2 ...] [extras...] -- <name_or_guid> [new_name] NULL */
+    num_args = 4 + (force ? 1 : 0) + (num_dirs * 2) + num_extra + (new_name ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     argv[next_arg++] = "zpool";
@@ -865,13 +895,21 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
             argv[next_arg++] = *dir_p;
         }
     }
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                argv[next_arg++] = (*extra_p)->opt;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                argv[next_arg++] = (*extra_p)->val;
+        }
+    }
     argv[next_arg++] = "--";
     argv[next_arg++] = name_or_guid;
     if (new_name)
         argv[next_arg++] = new_name;
     argv[next_arg] = NULL;
 
-    success = bd_utils_exec_and_report_error (argv, extra, error);
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
     g_free (argv);
     return success;
 }
@@ -1318,10 +1356,12 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
                                 const BDExtraArg **extra, GError **error) {
     const gchar **argv = NULL;
     guint num_vdevs = 0;
+    guint num_extra = 0;
     guint num_args = 0;
     guint next_arg = 0;
     gboolean success = FALSE;
     const gchar **vdev_p = NULL;
+    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Pool name", error))
         return FALSE;
@@ -1343,12 +1383,29 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    /* zpool add -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
-    num_args = 4 + num_vdevs + (raid_level ? 1 : 0) + 1;
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                num_extra++;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                num_extra++;
+        }
+    }
+
+    /* zpool add [extras...] -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
+    num_args = 4 + num_extra + num_vdevs + (raid_level ? 1 : 0) + 1;
     argv = g_new0 (const gchar*, num_args);
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "add";
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                argv[next_arg++] = (*extra_p)->opt;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                argv[next_arg++] = (*extra_p)->val;
+        }
+    }
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     if (raid_level)
@@ -1357,7 +1414,7 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
         argv[next_arg++] = *vdev_p;
     argv[next_arg] = NULL;
 
-    success = bd_utils_exec_and_report_error (argv, extra, error);
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
     g_free (argv);
     return success;
 }
@@ -2353,7 +2410,12 @@ static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line, gboolean ha
  * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_CREATE
  */
 gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GError **error) {
-    const gchar *argv[] = {"zfs", "create", "--", name, NULL};
+    const gchar **argv = NULL;
+    guint num_extra = 0;
+    guint num_args = 0;
+    guint next_arg = 0;
+    gboolean success = FALSE;
+    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Dataset name", error))
         return FALSE;
@@ -2361,7 +2423,36 @@ gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GEr
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    return bd_utils_exec_and_report_error (argv, extra, error);
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                num_extra++;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                num_extra++;
+        }
+    }
+
+    /* zfs create [extras...] -- <name> NULL */
+    num_args = 4 + num_extra + 1;
+    argv = g_new0 (const gchar*, num_args);
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "create";
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                argv[next_arg++] = (*extra_p)->opt;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                argv[next_arg++] = (*extra_p)->val;
+        }
+    }
+    argv[next_arg++] = "--";
+    argv[next_arg++] = name;
+    argv[next_arg] = NULL;
+
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
+    g_free (argv);
+    return success;
 }
 
 /**
@@ -2620,9 +2711,12 @@ gboolean bd_zfs_dataset_rename (const gchar *name, const gchar *new_name, gboole
  */
 gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const BDExtraArg **extra, GError **error) {
     gchar *mp_opt = NULL;
-    const gchar *argv[7] = {NULL};
+    const gchar **argv = NULL;
+    guint num_extra = 0;
+    guint num_args = 0;
     guint next_arg = 0;
     gboolean success;
+    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Dataset name", error))
         return FALSE;
@@ -2643,6 +2737,19 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                num_extra++;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                num_extra++;
+        }
+    }
+
+    /* zfs mount [-o mountpoint=X] [extras...] -- <name> NULL */
+    num_args = 4 + (mountpoint ? 2 : 0) + num_extra + 1;
+    argv = g_new0 (const gchar*, num_args);
+
     argv[next_arg++] = "zfs";
     argv[next_arg++] = "mount";
     if (mountpoint) {
@@ -2650,12 +2757,21 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
         argv[next_arg++] = "-o";
         argv[next_arg++] = mp_opt;
     }
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                argv[next_arg++] = (*extra_p)->opt;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                argv[next_arg++] = (*extra_p)->val;
+        }
+    }
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
-    success = bd_utils_exec_and_report_error (argv, extra, error);
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
     g_free (mp_opt);
+    g_free (argv);
     return success;
 }
 
@@ -2911,8 +3027,12 @@ static BDZFSSnapshotInfo* parse_snapshot_info_line (const gchar *line) {
  */
 gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
                                   const BDExtraArg **extra, GError **error) {
-    const gchar *argv[6] = {NULL};
+    const gchar **argv = NULL;
+    guint num_extra = 0;
+    guint num_args = 0;
     guint next_arg = 0;
+    gboolean success = FALSE;
+    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Snapshot name", error))
         return FALSE;
@@ -2920,15 +3040,38 @@ gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                num_extra++;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                num_extra++;
+        }
+    }
+
+    /* zfs snapshot [-r] [extras...] -- <name> NULL */
+    num_args = 4 + (recursive ? 1 : 0) + num_extra + 1;
+    argv = g_new0 (const gchar*, num_args);
+
     argv[next_arg++] = "zfs";
     argv[next_arg++] = "snapshot";
     if (recursive)
         argv[next_arg++] = "-r";
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                argv[next_arg++] = (*extra_p)->opt;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                argv[next_arg++] = (*extra_p)->val;
+        }
+    }
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
 
-    return bd_utils_exec_and_report_error (argv, extra, error);
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
+    g_free (argv);
+    return success;
 }
 
 /**
@@ -3089,7 +3232,12 @@ gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean d
  */
 gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
                                  const BDExtraArg **extra, GError **error) {
-    const gchar *argv[] = {"zfs", "clone", "--", snapshot, clone_name, NULL};
+    const gchar **argv = NULL;
+    guint num_extra = 0;
+    guint num_args = 0;
+    guint next_arg = 0;
+    gboolean success = FALSE;
+    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (snapshot, "Snapshot name", error))
         return FALSE;
@@ -3100,7 +3248,37 @@ gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    return bd_utils_exec_and_report_error (argv, extra, error);
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                num_extra++;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                num_extra++;
+        }
+    }
+
+    /* zfs clone [extras...] -- <snapshot> <clone_name> NULL */
+    num_args = 5 + num_extra + 1;
+    argv = g_new0 (const gchar*, num_args);
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "clone";
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                argv[next_arg++] = (*extra_p)->opt;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                argv[next_arg++] = (*extra_p)->val;
+        }
+    }
+    argv[next_arg++] = "--";
+    argv[next_arg++] = snapshot;
+    argv[next_arg++] = clone_name;
+    argv[next_arg] = NULL;
+
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
+    g_free (argv);
+    return success;
 }
 
 /**
@@ -3378,14 +3556,86 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
 
     if (new_key_location == NULL) {
         /* Inherit key from parent */
-        const gchar *argv[] = {"zfs", "change-key", "-i", "--", dataset, NULL};
-        return bd_utils_exec_and_report_error (argv, extra, error);
+        const gchar **argv = NULL;
+        guint num_extra = 0;
+        guint num_args = 0;
+        guint next_arg = 0;
+        const BDExtraArg **extra_p = NULL;
+        gboolean ret;
+
+        if (extra) {
+            for (extra_p = extra; *extra_p; extra_p++) {
+                if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                    num_extra++;
+                if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                    num_extra++;
+            }
+        }
+
+        /* zfs change-key -i [extras...] -- <dataset> NULL */
+        num_args = 5 + num_extra + 1;
+        argv = g_new0 (const gchar*, num_args);
+
+        argv[next_arg++] = "zfs";
+        argv[next_arg++] = "change-key";
+        argv[next_arg++] = "-i";
+        if (extra) {
+            for (extra_p = extra; *extra_p; extra_p++) {
+                if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                    argv[next_arg++] = (*extra_p)->opt;
+                if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                    argv[next_arg++] = (*extra_p)->val;
+            }
+        }
+        argv[next_arg++] = "--";
+        argv[next_arg++] = dataset;
+        argv[next_arg] = NULL;
+
+        ret = bd_utils_exec_and_report_error (argv, NULL, error);
+        g_free (argv);
+        return ret;
     } else {
         /* Set new key location via -o keylocation=<value> */
         gchar *opt = g_strdup_printf ("keylocation=%s", new_key_location);
-        const gchar *argv[] = {"zfs", "change-key", "-o", opt, "--", dataset, NULL};
-        gboolean ret = bd_utils_exec_and_report_error (argv, extra, error);
+        const gchar **argv = NULL;
+        guint num_extra = 0;
+        guint num_args = 0;
+        guint next_arg = 0;
+        const BDExtraArg **extra_p = NULL;
+        gboolean ret;
+
+        if (extra) {
+            for (extra_p = extra; *extra_p; extra_p++) {
+                if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                    num_extra++;
+                if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                    num_extra++;
+            }
+        }
+
+        /* zfs change-key -o keylocation=<value> [extras...] -- <dataset> NULL */
+        num_args = 6 + num_extra + 1;
+        argv = g_new0 (const gchar*, num_args);
+
+        argv[next_arg++] = "zfs";
+        argv[next_arg++] = "change-key";
+        argv[next_arg++] = "-o";
+        argv[next_arg++] = opt;
+        if (extra) {
+            for (extra_p = extra; *extra_p; extra_p++) {
+                if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                    argv[next_arg++] = (*extra_p)->opt;
+                if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                    argv[next_arg++] = (*extra_p)->val;
+            }
+        }
+        argv[next_arg++] = "--";
+        argv[next_arg++] = dataset;
+        argv[next_arg] = NULL;
+
+        ret = bd_utils_exec_and_report_error (argv, NULL, error);
         g_free (opt);
+        g_free (argv);
         return ret;
     }
 }
@@ -3458,10 +3708,12 @@ BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **erro
  */
 gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, const BDExtraArg **extra, GError **error) {
     const gchar **argv = NULL;
+    guint num_extra = 0;
     guint num_args = 0;
     guint next_arg = 0;
     gchar *size_str = NULL;
     gboolean success = FALSE;
+    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Zvol name", error))
         return FALSE;
@@ -3469,8 +3721,17 @@ gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, c
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    /* zfs create -V <size> [-s] -- <name> NULL */
-    num_args = 6 + (sparse ? 1 : 0) + 1;
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                num_extra++;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                num_extra++;
+        }
+    }
+
+    /* zfs create -V <size> [-s] [extras...] -- <name> NULL */
+    num_args = 6 + (sparse ? 1 : 0) + num_extra + 1;
     argv = g_new0 (const gchar*, num_args);
 
     size_str = g_strdup_printf ("%" G_GUINT64_FORMAT, size);
@@ -3481,10 +3742,19 @@ gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, c
     argv[next_arg++] = size_str;
     if (sparse)
         argv[next_arg++] = "-s";
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++) {
+            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
+                argv[next_arg++] = (*extra_p)->opt;
+            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
+                argv[next_arg++] = (*extra_p)->val;
+        }
+    }
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
+    argv[next_arg] = NULL;
 
-    success = bd_utils_exec_and_report_error (argv, extra, error);
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
     g_free (size_str);
     g_free (argv);
     return success;
