@@ -37,10 +37,13 @@ static GMutex deps_check_lock;
 
 #define DEPS_ZPOOL 0
 #define DEPS_ZPOOL_MASK (1 << DEPS_ZPOOL)
-#define DEPS_LAST 1
+#define DEPS_ZDB 1
+#define DEPS_ZDB_MASK (1 << DEPS_ZDB)
+#define DEPS_LAST 2
 
 static const UtilDep deps[DEPS_LAST] = {
     {"zpool", NULL, NULL, NULL},
+    {"zdb", NULL, NULL, NULL},
 };
 
 
@@ -64,7 +67,7 @@ bd_fs_zfs_is_tech_avail (BDFSTech tech G_GNUC_UNUSED, guint64 mode, GError **err
         return FALSE;
     }
 
-    return check_deps (&avail_deps, DEPS_ZPOOL_MASK, deps, DEPS_LAST, &deps_check_lock, error);
+    return check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZDB_MASK, deps, DEPS_LAST, &deps_check_lock, error);
 }
 
 /**
@@ -101,6 +104,67 @@ void bd_fs_zfs_info_free (BDFSZfsInfo *data) {
 }
 
 /**
+ * resolve_pool_name_from_device:
+ * @device: a block device that is a member of a ZFS pool
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Uses `zdb -l` to read the ZFS label directly from @device and extract
+ * the pool name. This is the only safe way to determine which pool a
+ * device belongs to -- listing all pools and picking the first one is a
+ * fail-open vulnerability in multi-pool systems.
+ *
+ * Returns: (transfer full): the pool name, or %NULL on error
+ */
+static gchar *
+resolve_pool_name_from_device (const gchar *device, GError **error) {
+    const gchar *argv_zdb[] = {"zdb", "-l", device, NULL};
+    gchar *zdb_output = NULL;
+    gchar *pool_name = NULL;
+    gboolean success;
+
+    success = bd_utils_exec_and_capture_output (argv_zdb, NULL, &zdb_output, error);
+    if (!success) {
+        g_free (zdb_output);
+        g_prefix_error (error,
+                        "Failed to determine ZFS pool name for device '%s': ",
+                        device);
+        return NULL;
+    }
+
+    /* Parse zdb -l output for "name: 'poolname'" */
+    gchar **zdb_lines = g_strsplit (zdb_output, "\n", -1);
+    g_free (zdb_output);
+
+    /* zdb -l may output multiple label copies (0-3), each with its own
+     * "name: 'poolname'" line.  They all carry the same pool name, so
+     * we take the first match. */
+    for (gchar **lp = zdb_lines; *lp; lp++) {
+        gchar *stripped = g_strstrip (g_strdup (*lp));
+        if (g_str_has_prefix (stripped, "name: '")) {
+            /* Extract pool name between quotes */
+            gchar *start = stripped + 7;  /* skip "name: '" */
+            gchar *end = strchr (start, '\'');
+            if (end) {
+                pool_name = g_strndup (start, end - start);
+            }
+        }
+        g_free (stripped);
+        if (pool_name)
+            break;
+    }
+    g_strfreev (zdb_lines);
+
+    if (!pool_name || *pool_name == '\0') {
+        g_free (pool_name);
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Failed to determine ZFS pool name for device '%s'", device);
+        return NULL;
+    }
+
+    return pool_name;
+}
+
+/**
  * bd_fs_zfs_set_label:
  * @device: a device that is a member of the ZFS pool to rename
  * @label: the new pool name (label)
@@ -109,86 +173,35 @@ void bd_fs_zfs_info_free (BDFSZfsInfo *data) {
  * Renames the ZFS pool that @device belongs to. This is done by
  * exporting the pool and re-importing it with the new name.
  * The pool must not have any busy datasets (mounted filesystems, etc.).
+ * The pool name is resolved from @device using zdb(8). Both zpool and zdb
+ * must be available.
  *
  * Returns: whether the pool was successfully renamed or not
  *
  * Tech category: %BD_FS_TECH_ZFS-%BD_FS_TECH_MODE_SET_LABEL
  */
-gboolean bd_fs_zfs_set_label (const gchar *device G_GNUC_UNUSED, const gchar *label, GError **error) {
+gboolean bd_fs_zfs_set_label (const gchar *device, const gchar *label, GError **error) {
     /* To rename a ZFS pool we need the current pool name.
      * The 'device' parameter is a block device that's a pool member.
-     * We get the current name from zdb -l or from get_info.
+     * We resolve the pool name using zdb -l (no fallback).
      * Then: zpool export <oldname> && zpool import <oldname> <newname>
      */
-    const gchar *argv_get[7] = {"zpool", "list", "-H", "-p", "-o", "name", NULL};
-    gchar *output = NULL;
     gboolean success;
     gchar *old_name = NULL;
 
-    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZDB_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
     /* Validate the new label */
     if (!bd_fs_zfs_check_label (label, error))
         return FALSE;
 
-    /* Get the pool name for this device. We use zdb -l to read the label
-     * directly from the device without requiring the pool to be imported.
-     * Format: "    name: 'poolname'" */
-    {
-        const gchar *argv_zdb[] = {"zdb", "-l", device, NULL};
-        gchar *zdb_output = NULL;
-
-        success = bd_utils_exec_and_capture_output (argv_zdb, NULL, &zdb_output, error);
-        if (!success) {
-            g_free (zdb_output);
-            /* Fallback: try to find pool from zpool status */
-            g_clear_error (error);
-
-            /* If zdb isn't available, try listing all pools and matching
-             * by searching zpool status for the device. For simplicity,
-             * require that the device's pool is already imported. */
-            success = bd_utils_exec_and_capture_output (argv_get, NULL, &output, error);
-            if (!success || !output || *output == '\0') {
-                g_free (output);
-                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                             "Failed to determine ZFS pool name for device '%s'", device);
-                return FALSE;
-            }
-            /* Take the first pool name as a fallback (not ideal for multi-pool) */
-            gchar **lines = g_strsplit (output, "\n", 2);
-            g_free (output);
-            if (lines[0] && *lines[0])
-                old_name = g_strdup (g_strstrip (lines[0]));
-            g_strfreev (lines);
-        } else {
-            /* Parse zdb -l output for "name: 'poolname'" */
-            gchar **zdb_lines = g_strsplit (zdb_output, "\n", -1);
-            g_free (zdb_output);
-            for (gchar **lp = zdb_lines; *lp; lp++) {
-                gchar *stripped = g_strstrip (g_strdup (*lp));
-                if (g_str_has_prefix (stripped, "name: '")) {
-                    /* Extract pool name between quotes */
-                    gchar *start = stripped + 7;  /* skip "name: '" */
-                    gchar *end = strchr (start, '\'');
-                    if (end) {
-                        old_name = g_strndup (start, end - start);
-                    }
-                }
-                g_free (stripped);
-                if (old_name)
-                    break;
-            }
-            g_strfreev (zdb_lines);
-        }
-    }
-
-    if (!old_name || *old_name == '\0') {
-        g_free (old_name);
-        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                     "Failed to determine ZFS pool name for device '%s'", device);
+    /* Resolve the pool name from the device using zdb -l.
+     * No fallback to zpool list -- that would be a fail-open vulnerability
+     * in multi-pool systems. */
+    old_name = resolve_pool_name_from_device (device, error);
+    if (!old_name)
         return FALSE;
-    }
 
     /* If same name, nothing to do */
     if (g_strcmp0 (old_name, label) == 0) {
@@ -316,29 +329,42 @@ gboolean bd_fs_zfs_check_uuid (const gchar *uuid, GError **error) {
  * @device: the device containing the file system to get info for
  * @error: (out) (optional): place to store error (if any)
  *
+ * The pool is identified by reading the ZFS on-disk label from @device using
+ * zdb(8). Requires both zpool and zdb to be available on the system.
+ *
  * Returns: (transfer full): information about the ZFS file system on @device or
  *                           %NULL in case of error
  *
  * Tech category: %BD_FS_TECH_ZFS-%BD_FS_TECH_MODE_QUERY
  */
 BDFSZfsInfo* bd_fs_zfs_get_info (const gchar *device, GError **error) {
-    const gchar *argv[] = {"zpool", "list", "-H", "-p", "-o", "name,guid,size,free", NULL};
     gchar *output = NULL;
+    gchar *pool_name = NULL;
     gboolean success;
 
-    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZDB_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
+    /* Resolve the pool name from the device using zdb -l */
+    pool_name = resolve_pool_name_from_device (device, error);
+    if (!pool_name)
+        return NULL;
+
+    /* Query the specific pool */
+    const gchar *argv[] = {"zpool", "list", "-H", "-p", "-o", "name,guid,size,free", pool_name, NULL};
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
     if (!success) {
         g_free (output);
+        g_free (pool_name);
         return NULL;
     }
+
+    g_free (pool_name);
 
     if (output == NULL || *output == '\0') {
         g_free (output);
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                     "No ZFS pools found");
+                     "No ZFS pool info returned");
         return NULL;
     }
 
