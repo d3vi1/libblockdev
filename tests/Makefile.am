@@ -63,6 +63,10 @@ if WITH_SMARTMONTOOLS
 PLUGINS += smartmontools
 endif
 
+if WITH_ZFS
+PLUGINS += zfs
+endif
+
 if WITH_TOOLS
 PLUGINS += tools
 endif

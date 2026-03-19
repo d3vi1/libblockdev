@@ -534,6 +534,9 @@ with the libblockdev-swap plugin/library.
 %package zfs
 Summary:     The ZFS plugin for the libblockdev library
 Requires: %{name}-utils%{?_isa} = %{version}-%{release}
+Requires: /usr/sbin/zpool
+Requires: /usr/sbin/zfs
+Requires: /usr/sbin/zdb
 
 %description zfs
 The libblockdev library plugin (and in the same time a standalone library)
