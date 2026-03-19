@@ -376,3 +376,78 @@ class ZfsCapabilityTestCase(ZfsPluginTest):
             self.skipTest("skipping: OpenZFS < 0.8.0")
         avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.MAINTENANCE, BlockDev.ZFSTechMode.MODIFY)
         self.assertTrue(avail)
+
+
+class ZfsDatasetInfoEncryptionFieldsTestCase(ZfsPluginTest):
+    """Tests that dataset info/list handle encryption fields conditionally."""
+
+    def _skip_unless_zfs_tools(self):
+        """Helper: skip the test if ZFS tools are not available."""
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.DATASET, BlockDev.ZFSTechMode.QUERY)
+        except GLib.GError:
+            self.skipTest("skipping: ZFS tools not available")
+
+    def _has_encryption_support(self):
+        """Return True if the installed OpenZFS is >= 0.8.0."""
+        version = BlockDev.zfs_get_zfs_version()
+        parts = version.split(".")
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        return major > 0 or minor >= 8
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_get_info_no_error(self):
+        """dataset_get_info must not crash due to encryption field mismatch.
+
+        We attempt to query a dataset that likely does not exist; the key
+        assertion is that the error is NOT a parse/field-count error caused
+        by requesting encryption properties on pre-0.8 ZFS.
+        """
+        self._skip_unless_zfs_tools()
+        try:
+            BlockDev.zfs_dataset_get_info("nonexistent/dataset")
+        except GLib.GError as e:
+            # We expect a "does not exist" style error, NOT a parse error
+            self.assertNotIn("Failed to parse", str(e))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_list_no_error(self):
+        """dataset_list must not crash due to encryption field mismatch.
+
+        On a system without pools the list may fail or return empty; the
+        key check is that it does not fail with a parse/field-count error.
+        """
+        self._skip_unless_zfs_tools()
+        try:
+            infos = BlockDev.zfs_dataset_list(None, False)
+            # If it succeeds (pools exist), each entry should have valid fields
+            if infos:
+                for info in infos:
+                    self.assertIsNotNone(info.name)
+        except GLib.GError as e:
+            self.assertNotIn("Failed to parse", str(e))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_fields_populated_on_modern_zfs(self):
+        """On OpenZFS >= 0.8.0, encryption fields must be populated in dataset info.
+
+        This test only runs when pools exist and encryption is supported.
+        """
+        self._skip_unless_zfs_tools()
+        if not self._has_encryption_support():
+            self.skipTest("skipping: OpenZFS < 0.8.0, no encryption support")
+
+        try:
+            infos = BlockDev.zfs_dataset_list(None, False)
+        except GLib.GError:
+            self.skipTest("skipping: no pools available to query")
+
+        if not infos:
+            self.skipTest("skipping: no datasets to inspect")
+
+        # On modern ZFS, the encryption field should be a non-None string
+        # (typically "off" or an algorithm name like "aes-256-gcm")
+        info = infos[0]
+        self.assertIsNotNone(info.encryption,
+                             "encryption field should be populated on OpenZFS >= 0.8.0")

@@ -2154,19 +2154,28 @@ BDZFSPropertyInfo** bd_zfs_pool_get_properties (const gchar *name, GError **erro
 
 /**
  * parse_dataset_info_line:
+ * @line: tab-separated output line from ``zfs list -H -p``
+ * @has_encryption: whether encryption fields (encryption, keystatus) are
+ *                  present between compress and mounted
  *
  * Parses a single tab-separated line from `zfs list -H -p` output into
  * a BDZFSDatasetInfo struct.
  *
- * Fields expected (in order):
+ * When @has_encryption is %TRUE the expected field order is:
  *   name, type, mountpoint, origin, used, avail, refer, compress, encryption, keystatus, mounted
+ * (11 fields)
+ *
+ * When @has_encryption is %FALSE:
+ *   name, type, mountpoint, origin, used, avail, refer, compress, mounted
+ * (9 fields) — encryption defaults to %NULL and key_status to NONE.
  *
  * Returns: (transfer full): a new BDZFSDatasetInfo or %NULL on parse error
  */
-static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line) {
+static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line, gboolean has_encryption) {
     gchar **fields = NULL;
     BDZFSDatasetInfo *info = NULL;
     guint num_fields;
+    guint required = has_encryption ? 11 : 9;
 
     if (!line || strlen (line) == 0)
         return NULL;
@@ -2174,7 +2183,7 @@ static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line) {
     fields = g_strsplit (line, "\t", -1);
     num_fields = g_strv_length (fields);
 
-    if (num_fields < 11) {
+    if (num_fields < required) {
         g_strfreev (fields);
         return NULL;
     }
@@ -2220,19 +2229,28 @@ static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line) {
     /* [7] compression */
     info->compression = g_strdup (fields[7]);
 
-    /* [8] encryption */
-    info->encryption = g_strdup (fields[8]);
+    if (has_encryption) {
+        /* [8] encryption */
+        info->encryption = g_strdup (fields[8]);
 
-    /* [9] keystatus */
-    if (g_strcmp0 (fields[9], "available") == 0)
-        info->key_status = BD_ZFS_KEY_STATUS_AVAILABLE;
-    else if (g_strcmp0 (fields[9], "unavailable") == 0)
-        info->key_status = BD_ZFS_KEY_STATUS_UNAVAILABLE;
-    else
+        /* [9] keystatus */
+        if (g_strcmp0 (fields[9], "available") == 0)
+            info->key_status = BD_ZFS_KEY_STATUS_AVAILABLE;
+        else if (g_strcmp0 (fields[9], "unavailable") == 0)
+            info->key_status = BD_ZFS_KEY_STATUS_UNAVAILABLE;
+        else
+            info->key_status = BD_ZFS_KEY_STATUS_NONE;
+
+        /* [10] mounted ("yes"/"no"/"-") */
+        info->mounted = (g_strcmp0 (fields[10], "yes") == 0);
+    } else {
+        /* No encryption support — defaults */
+        info->encryption = NULL;
         info->key_status = BD_ZFS_KEY_STATUS_NONE;
 
-    /* [10] mounted ("yes"/"no"/"-") */
-    info->mounted = (g_strcmp0 (fields[10], "yes") == 0);
+        /* [8] mounted ("yes"/"no"/"-") */
+        info->mounted = (g_strcmp0 (fields[8], "yes") == 0);
+    }
 
     g_strfreev (fields);
     return info;
@@ -2316,17 +2334,28 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
     guint next_arg = 0;
     guint num_args;
     gchar *output = NULL;
+    gchar *fields_str = NULL;
     gboolean success;
     gchar **lines = NULL;
     gchar **line_p = NULL;
     GPtrArray *dataset_infos;
     BDZFSDatasetInfo *info = NULL;
+    gboolean has_encryption;
 
     if (pool_or_parent && !validate_name_not_option (pool_or_parent, "Pool or parent dataset", error))
         return NULL;
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
+
+    /* Encryption properties require OpenZFS >= 0.8.0; pass NULL for error
+     * because this is a best-effort probe — if it fails we simply omit them. */
+    has_encryption = zfs_version_at_least (0, 8, 0, NULL);
+
+    if (has_encryption)
+        fields_str = g_strdup ("name,type,mountpoint,origin,used,avail,refer,compress,encryption,keystatus,mounted");
+    else
+        fields_str = g_strdup ("name,type,mountpoint,origin,used,avail,refer,compress,mounted");
 
     /* zfs list -H -p -t all [-r] -o <fields> [-- pool_or_parent] NULL */
     num_args = 8 + (recursive ? 1 : 0) + (pool_or_parent ? 2 : 0) + 1;
@@ -2341,7 +2370,7 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
     if (recursive)
         argv[next_arg++] = "-r";
     argv[next_arg++] = "-o";
-    argv[next_arg++] = "name,type,mountpoint,origin,used,avail,refer,compress,encryption,keystatus,mounted";
+    argv[next_arg++] = fields_str;
     if (pool_or_parent) {
         argv[next_arg++] = "--";
         argv[next_arg++] = pool_or_parent;
@@ -2350,6 +2379,7 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
 
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
     g_free (argv);
+    g_free (fields_str);
     if (!success) {
         g_free (output);
         return NULL;
@@ -2362,7 +2392,7 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
     for (line_p = lines; *line_p; line_p++) {
         if (strlen (*line_p) == 0)
             continue;
-        info = parse_dataset_info_line (*line_p);
+        info = parse_dataset_info_line (*line_p, has_encryption);
         if (info)
             g_ptr_array_add (dataset_infos, info);
     }
@@ -2384,13 +2414,14 @@ BDZFSDatasetInfo** bd_zfs_dataset_list (const gchar *pool_or_parent, gboolean re
  * Tech category: %BD_ZFS_TECH_DATASET-%BD_ZFS_TECH_MODE_QUERY
  */
 BDZFSDatasetInfo* bd_zfs_dataset_get_info (const gchar *name, GError **error) {
-    const gchar *argv[] = {"zfs", "list", "-H", "-p", "-t", "all", "-o",
-                           "name,type,mountpoint,origin,used,avail,refer,compress,encryption,keystatus,mounted",
-                           "--", name, NULL};
+    const gchar *argv[12] = {NULL};
+    guint next_arg = 0;
+    gchar *fields_str = NULL;
     gchar *output = NULL;
     gboolean success;
     gchar **lines = NULL;
     BDZFSDatasetInfo *info = NULL;
+    gboolean has_encryption;
 
     if (!validate_name_not_option (name, "Dataset name", error))
         return NULL;
@@ -2398,7 +2429,29 @@ BDZFSDatasetInfo* bd_zfs_dataset_get_info (const gchar *name, GError **error) {
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
 
+    /* Encryption properties require OpenZFS >= 0.8.0; pass NULL for error
+     * because this is a best-effort probe — if it fails we simply omit them. */
+    has_encryption = zfs_version_at_least (0, 8, 0, NULL);
+
+    if (has_encryption)
+        fields_str = g_strdup ("name,type,mountpoint,origin,used,avail,refer,compress,encryption,keystatus,mounted");
+    else
+        fields_str = g_strdup ("name,type,mountpoint,origin,used,avail,refer,compress,mounted");
+
+    argv[next_arg++] = "zfs";
+    argv[next_arg++] = "list";
+    argv[next_arg++] = "-H";
+    argv[next_arg++] = "-p";
+    argv[next_arg++] = "-t";
+    argv[next_arg++] = "all";
+    argv[next_arg++] = "-o";
+    argv[next_arg++] = fields_str;
+    argv[next_arg++] = "--";
+    argv[next_arg++] = name;
+    argv[next_arg] = NULL;
+
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    g_free (fields_str);
     if (!success) {
         g_free (output);
         return NULL;
@@ -2411,7 +2464,7 @@ BDZFSDatasetInfo* bd_zfs_dataset_get_info (const gchar *name, GError **error) {
     for (gchar **line_p = lines; *line_p; line_p++) {
         if (strlen (*line_p) == 0)
             continue;
-        info = parse_dataset_info_line (*line_p);
+        info = parse_dataset_info_line (*line_p, has_encryption);
         break;
     }
     g_strfreev (lines);
