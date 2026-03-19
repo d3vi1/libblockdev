@@ -279,4 +279,6 @@ gboolean bd_zfs_zvol_resize (const gchar *name, guint64 new_size, GError **error
 
 const gchar* bd_zfs_get_zfs_version (GError **error);
 
+gboolean bd_zfs_validate_pool_name (const gchar *name, GError **error);
+
 #endif  /* BD_ZFS */

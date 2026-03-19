@@ -976,4 +976,5 @@ bd_zfs_zvol_create
 bd_zfs_zvol_destroy
 bd_zfs_zvol_resize
 bd_zfs_get_zfs_version
+bd_zfs_validate_pool_name
 </SECTION>

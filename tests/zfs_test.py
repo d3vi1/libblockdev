@@ -33,13 +33,13 @@ class ZfsOptionInjectionTestCase(ZfsPluginTest):
     @tag_test(TestTags.NOSTORAGE)
     def test_pool_create_rejects_option_name(self):
         """pool_create must reject pool names starting with '-'"""
-        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+        with self.assertRaisesRegex(GLib.GError, "must begin with a letter"):
             BlockDev.zfs_pool_create("--help", ["/dev/sda"], None, None)
 
     @tag_test(TestTags.NOSTORAGE)
     def test_pool_create_rejects_dash_name(self):
         """pool_create must reject single-dash pool names"""
-        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+        with self.assertRaisesRegex(GLib.GError, "must begin with a letter"):
             BlockDev.zfs_pool_create("-a", ["/dev/sda"], None, None)
 
     @tag_test(TestTags.NOSTORAGE)
@@ -290,6 +290,208 @@ class ZfsOptionInjectionTestCase(ZfsPluginTest):
     # fix/s1-4-vdev-parser-safety and verified by code review + defensive
     # reordering.  Runtime tests require a live ZFS pool with deeply nested
     # vdevs which is impractical in the unit-test environment.
+
+
+class ZfsPoolNameValidationTestCase(ZfsPluginTest):
+    """Tests for bd_zfs_validate_pool_name() — comprehensive ZFS naming rules."""
+
+    # ---- valid names ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_valid_simple_name(self):
+        """'tank' is a valid pool name"""
+        self.assertTrue(BlockDev.zfs_validate_pool_name("tank"))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_valid_longer_name(self):
+        """'mypool' is a valid pool name"""
+        self.assertTrue(BlockDev.zfs_validate_pool_name("mypool"))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_valid_underscore(self):
+        """'pool_1' is a valid pool name (underscore allowed)"""
+        self.assertTrue(BlockDev.zfs_validate_pool_name("pool_1"))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_valid_hyphen(self):
+        """'test-pool' is a valid pool name (hyphen allowed)"""
+        self.assertTrue(BlockDev.zfs_validate_pool_name("test-pool"))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_valid_period(self):
+        """'data.backup' is a valid pool name (period allowed)"""
+        self.assertTrue(BlockDev.zfs_validate_pool_name("data.backup"))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_valid_colon(self):
+        """'pool:1' is a valid pool name (colon allowed)"""
+        self.assertTrue(BlockDev.zfs_validate_pool_name("pool:1"))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_valid_single_letter(self):
+        """'z' is a valid pool name (single letter)"""
+        self.assertTrue(BlockDev.zfs_validate_pool_name("z"))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_valid_max_length(self):
+        """A 255-character name is valid (max allowed)"""
+        name = "a" * 255
+        self.assertTrue(BlockDev.zfs_validate_pool_name(name))
+
+    # ---- invalid: empty / NULL ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_empty(self):
+        """Empty string is not a valid pool name"""
+        with self.assertRaisesRegex(GLib.GError, "cannot be NULL or empty"):
+            BlockDev.zfs_validate_pool_name("")
+
+    # ---- invalid: starts with digit ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_starts_with_digit(self):
+        """Pool name starting with a digit is invalid"""
+        with self.assertRaisesRegex(GLib.GError, "must begin with a letter"):
+            BlockDev.zfs_validate_pool_name("1pool")
+
+    # ---- invalid: starts with special char ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_starts_with_dash(self):
+        """Pool name starting with '-' is invalid"""
+        with self.assertRaisesRegex(GLib.GError, "must begin with a letter"):
+            BlockDev.zfs_validate_pool_name("-pool")
+
+    # ---- invalid: 'c' followed by digit ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_c_digit(self):
+        """'c0' prefix is reserved for device names"""
+        with self.assertRaisesRegex(GLib.GError, "cannot begin with 'c' followed by a digit"):
+            BlockDev.zfs_validate_pool_name("c0d0")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_C_digit(self):
+        """'C9' prefix is also reserved (case-insensitive 'c' check)"""
+        with self.assertRaisesRegex(GLib.GError, "cannot begin with 'c' followed by a digit"):
+            BlockDev.zfs_validate_pool_name("C9pool")
+
+    # ---- invalid: bad characters ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_space(self):
+        """Pool name containing a space is invalid"""
+        with self.assertRaisesRegex(GLib.GError, "contains invalid character"):
+            BlockDev.zfs_validate_pool_name("my pool")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_slash(self):
+        """Pool name containing '/' is invalid"""
+        with self.assertRaisesRegex(GLib.GError, "contains invalid character"):
+            BlockDev.zfs_validate_pool_name("pool/child")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_at_sign(self):
+        """Pool name containing '@' is invalid"""
+        with self.assertRaisesRegex(GLib.GError, "contains invalid character"):
+            BlockDev.zfs_validate_pool_name("pool@snap")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_hash(self):
+        """Pool name containing '#' is invalid"""
+        with self.assertRaisesRegex(GLib.GError, "contains invalid character"):
+            BlockDev.zfs_validate_pool_name("pool#bm")
+
+    # ---- invalid: reserved names ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_mirror(self):
+        """'mirror' is a reserved vdev type name"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("mirror")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_raidz(self):
+        """'raidz' is a reserved vdev type name"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("raidz")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_cache(self):
+        """'cache' is a reserved vdev type name"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("cache")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_spare(self):
+        """'spare' is a reserved vdev type name"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("spare")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_log(self):
+        """'log' is a reserved vdev type name"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("log")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_dedup(self):
+        """'dedup' is a reserved vdev type name"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("dedup")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_special(self):
+        """'special' is a reserved vdev type name"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("special")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_draid(self):
+        """'draid' is a reserved vdev type name"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("draid")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_reserved_case_insensitive(self):
+        """Reserved name check is case-insensitive"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("MIRROR")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_reserved_mixed_case(self):
+        """Reserved name check is case-insensitive (mixed case)"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_validate_pool_name("RaidZ")
+
+    # ---- invalid: too long ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_invalid_too_long(self):
+        """A 256-character name exceeds the maximum"""
+        name = "a" * 256
+        with self.assertRaisesRegex(GLib.GError, "exceeds maximum length"):
+            BlockDev.zfs_validate_pool_name(name)
+
+    # ---- pool_create integration: verify it uses validate_pool_name ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_create_rejects_reserved_name(self):
+        """pool_create must reject reserved vdev type names"""
+        with self.assertRaisesRegex(GLib.GError, "is reserved"):
+            BlockDev.zfs_pool_create("mirror", ["/dev/sda"], None, None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_create_rejects_digit_start(self):
+        """pool_create must reject pool names starting with a digit"""
+        with self.assertRaisesRegex(GLib.GError, "must begin with a letter"):
+            BlockDev.zfs_pool_create("9pool", ["/dev/sda"], None, None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_create_rejects_c_digit(self):
+        """pool_create must reject pool names starting with 'c' + digit"""
+        with self.assertRaisesRegex(GLib.GError, "cannot begin with 'c' followed by a digit"):
+            BlockDev.zfs_pool_create("c0d0", ["/dev/sda"], None, None)
 
 
 class ZfsVersionTestCase(ZfsPluginTest):
