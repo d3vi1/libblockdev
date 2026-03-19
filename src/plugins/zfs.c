@@ -2256,6 +2256,8 @@ static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line, gboolean ha
             info->key_status = BD_ZFS_KEY_STATUS_AVAILABLE;
         else if (g_strcmp0 (fields[9], "unavailable") == 0)
             info->key_status = BD_ZFS_KEY_STATUS_UNAVAILABLE;
+        else if (g_strcmp0 (fields[9], "-") == 0 || g_strcmp0 (fields[9], "none") == 0)
+            info->key_status = BD_ZFS_KEY_STATUS_NONE;
         else
             info->key_status = BD_ZFS_KEY_STATUS_UNKNOWN;
 
@@ -3327,6 +3329,8 @@ BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **erro
         ret = BD_ZFS_KEY_STATUS_AVAILABLE;
     else if (g_strcmp0 (value, "unavailable") == 0)
         ret = BD_ZFS_KEY_STATUS_UNAVAILABLE;
+    else if (g_strcmp0 (value, "-") == 0 || g_strcmp0 (value, "none") == 0)
+        ret = BD_ZFS_KEY_STATUS_NONE;
     else
         ret = BD_ZFS_KEY_STATUS_UNKNOWN;
 
