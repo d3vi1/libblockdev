@@ -1388,4 +1388,22 @@ gboolean bd_zfs_pool_upgrade (const gchar *name, GError **error);
  */
 gchar* bd_zfs_pool_history (const gchar *name, GError **error);
 
+/**
+ * bd_zfs_get_zfs_version:
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Retrieves the installed ZFS version by running ``zfs version`` and
+ * normalizing the output to a clean ``major.minor.patch`` string with
+ * distro-specific suffixes removed (e.g. ``2.2.6-1ubuntu3`` becomes
+ * ``2.2.6``).
+ *
+ * The returned string is cached internally and must NOT be freed by the
+ * caller.
+ *
+ * Returns: (transfer none): the normalized ZFS version string, or %NULL on error
+ *
+ * Tech category: %BD_ZFS_TECH_POOL-%BD_ZFS_TECH_MODE_QUERY
+ */
+const gchar* bd_zfs_get_zfs_version (GError **error);
+
 #endif /* BD_ZFS_API */

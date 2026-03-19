@@ -972,4 +972,5 @@ bd_zfs_encryption_key_status
 bd_zfs_zvol_create
 bd_zfs_zvol_destroy
 bd_zfs_zvol_resize
+bd_zfs_get_zfs_version
 </SECTION>
