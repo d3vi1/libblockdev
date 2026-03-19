@@ -292,28 +292,24 @@ validate_name_not_option (const gchar *name, const gchar *param_name, GError **e
  *
  * Validates that @name is a valid ZFS pool name per OpenZFS naming rules:
  * must begin with a letter, contain only alphanumerics/underscore/hyphen/period/colon,
- * must not be a reserved vdev type name, must not begin with 'c' followed by a digit,
- * and must not exceed 255 characters.
+ * must not conflict with a reserved vdev type name (prefix match for mirror/raidz/draid/spare,
+ * exact match for log), and must not exceed 239 characters.
  *
  * Returns: %TRUE if valid, %FALSE on error with @error set
  *
  * Tech category: always available
  */
 gboolean bd_zfs_validate_pool_name (const gchar *name, GError **error) {
-    static const gchar *reserved[] = {
-        "mirror", "raidz", "draid", "spare", "log", "cache", "special", "dedup", NULL
-    };
-
     if (!name || *name == '\0') {
         g_set_error_literal (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
                              "Pool name cannot be NULL or empty");
         return FALSE;
     }
 
-    /* Max length 255 (MAXNAMELEN - 1 in ZFS source) */
-    if (strlen (name) > 255) {
+    /* Max pool name length: ZFS_MAX_DATASET_NAME_LEN(256) - 2 - strlen("$ORIGIN")*2 = 240 */
+    if (strlen (name) >= 240) {
         g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
-                     "Pool name exceeds maximum length of 255 characters");
+                     "Pool name exceeds maximum length of 239 characters");
         return FALSE;
     }
 
@@ -321,13 +317,6 @@ gboolean bd_zfs_validate_pool_name (const gchar *name, GError **error) {
     if (!g_ascii_isalpha (name[0])) {
         g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
                      "Pool name must begin with a letter: '%s'", name);
-        return FALSE;
-    }
-
-    /* Cannot begin with 'c' followed by a digit (reserved for device names) */
-    if ((name[0] == 'c' || name[0] == 'C') && name[1] != '\0' && g_ascii_isdigit (name[1])) {
-        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
-                     "Pool name cannot begin with 'c' followed by a digit: '%s'", name);
         return FALSE;
     }
 
@@ -340,13 +329,15 @@ gboolean bd_zfs_validate_pool_name (const gchar *name, GError **error) {
         }
     }
 
-    /* Check reserved vdev type names (case-insensitive) */
-    for (const gchar **r = reserved; *r != NULL; r++) {
-        if (g_ascii_strcasecmp (name, *r) == 0) {
-            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
-                         "Pool name '%s' is reserved", name);
-            return FALSE;
-        }
+    /* Reserved vdev type prefixes per OpenZFS zpool_name_valid() */
+    if (g_ascii_strncasecmp (name, "mirror", 6) == 0 ||
+        g_ascii_strncasecmp (name, "raidz", 5) == 0 ||
+        g_ascii_strncasecmp (name, "draid", 5) == 0 ||
+        g_ascii_strncasecmp (name, "spare", 5) == 0 ||
+        g_ascii_strcasecmp (name, "log") == 0) {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                     "Pool name '%s' conflicts with a reserved vdev type name", name);
+        return FALSE;
     }
 
     return TRUE;
@@ -849,7 +840,7 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
     if (!validate_name_not_option (name_or_guid, "Pool name or GUID", error))
         return FALSE;
 
-    if (new_name && !validate_name_not_option (new_name, "New pool name", error))
+    if (new_name && !bd_zfs_validate_pool_name (new_name, error))
         return FALSE;
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
