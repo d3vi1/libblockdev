@@ -281,4 +281,6 @@ const gchar* bd_zfs_get_zfs_version (GError **error);
 
 gboolean bd_zfs_validate_pool_name (const gchar *name, GError **error);
 
+BDZFSVdevType bd_zfs_vdev_infer_type (const gchar *name);
+
 #endif  /* BD_ZFS */
