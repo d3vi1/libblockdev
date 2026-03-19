@@ -487,3 +487,64 @@ class ZfsUnknownEnumValuesTestCase(ZfsPluginTest):
         val = BlockDev.ZFSKeyStatus.NONE
         self.assertIsNotNone(val)
         self.assertEqual(int(val), 0)
+
+
+class ZfsBookmarkInfoTypeTestCase(ZfsPluginTest):
+    """Tests for the BDZFSBookmarkInfo type and bd_zfs_bookmark_list return type."""
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_bookmark_info_type_accessible(self):
+        """BDZFSBookmarkInfo must be accessible through GI as a boxed type"""
+        info_type = BlockDev.ZFSBookmarkInfo
+        self.assertIsNotNone(info_type)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_bookmark_info_has_name_field(self):
+        """BDZFSBookmarkInfo must have a 'name' field"""
+        self.assertTrue(hasattr(BlockDev.ZFSBookmarkInfo, 'name'))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_bookmark_info_has_creation_field(self):
+        """BDZFSBookmarkInfo must have a 'creation' field"""
+        self.assertTrue(hasattr(BlockDev.ZFSBookmarkInfo, 'creation'))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_bookmark_list_returns_bookmark_info(self):
+        """bd_zfs_bookmark_list must return BDZFSBookmarkInfo objects (when ZFS available)"""
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.SNAPSHOT, BlockDev.ZFSTechMode.QUERY)
+        except GLib.GError:
+            self.skipTest("skipping: ZFS tools not available")
+
+        try:
+            bookmarks = BlockDev.zfs_bookmark_list(None)
+        except GLib.GError:
+            # May fail if no pools exist; that is fine
+            return
+
+        if bookmarks:
+            for bm in bookmarks:
+                self.assertIsInstance(bm, BlockDev.ZFSBookmarkInfo)
+                self.assertIsNotNone(bm.name)
+                self.assertIsInstance(bm.creation, int)
+
+
+class ZfsVdevInfoFieldsTestCase(ZfsPluginTest):
+    """Tests that BDZFSVdevInfo does not have removed alloc/space fields."""
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_vdev_info_no_alloc_field(self):
+        """BDZFSVdevInfo must not have an 'alloc' field (removed)"""
+        self.assertFalse(hasattr(BlockDev.ZFSVdevInfo, 'alloc'))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_vdev_info_no_space_field(self):
+        """BDZFSVdevInfo must not have a 'space' field (removed)"""
+        self.assertFalse(hasattr(BlockDev.ZFSVdevInfo, 'space'))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_vdev_info_has_error_fields(self):
+        """BDZFSVdevInfo must still have read_errors, write_errors, checksum_errors"""
+        self.assertTrue(hasattr(BlockDev.ZFSVdevInfo, 'read_errors'))
+        self.assertTrue(hasattr(BlockDev.ZFSVdevInfo, 'write_errors'))
+        self.assertTrue(hasattr(BlockDev.ZFSVdevInfo, 'checksum_errors'))

@@ -196,8 +196,6 @@ GType bd_zfs_vdev_info_get_type();
  * @path: path of the vdev device (or name for virtual vdevs)
  * @type: type of the vdev
  * @state: state of the vdev
- * @alloc: allocated space in bytes
- * @space: total space in bytes
  * @read_errors: number of read errors
  * @write_errors: number of write errors
  * @checksum_errors: number of checksum errors
@@ -207,8 +205,6 @@ typedef struct BDZFSVdevInfo {
     gchar *path;
     BDZFSVdevType type;
     BDZFSVdevState state;
-    guint64 alloc;
-    guint64 space;
     guint64 read_errors;
     guint64 write_errors;
     guint64 checksum_errors;
@@ -230,8 +226,6 @@ BDZFSVdevInfo* bd_zfs_vdev_info_copy (BDZFSVdevInfo *info) {
     new_info->path = g_strdup (info->path);
     new_info->type = info->type;
     new_info->state = info->state;
-    new_info->alloc = info->alloc;
-    new_info->space = info->space;
     new_info->read_errors = info->read_errors;
     new_info->write_errors = info->write_errors;
     new_info->checksum_errors = info->checksum_errors;
@@ -437,6 +431,64 @@ GType bd_zfs_snapshot_info_get_type () {
         type = g_boxed_type_register_static("BDZFSSnapshotInfo",
                                             (GBoxedCopyFunc) bd_zfs_snapshot_info_copy,
                                             (GBoxedFreeFunc) bd_zfs_snapshot_info_free);
+    }
+
+    return type;
+}
+
+
+#define BD_ZFS_TYPE_BOOKMARK_INFO (bd_zfs_bookmark_info_get_type ())
+GType bd_zfs_bookmark_info_get_type();
+
+/**
+ * BDZFSBookmarkInfo:
+ * @name: full name of the bookmark (pool/dataset#bookmark)
+ * @creation: creation timestamp (Unix epoch seconds)
+ */
+typedef struct BDZFSBookmarkInfo {
+    gchar *name;
+    guint64 creation;
+} BDZFSBookmarkInfo;
+
+/**
+ * bd_zfs_bookmark_info_copy: (skip)
+ * @info: (nullable): %BDZFSBookmarkInfo to copy
+ *
+ * Creates a new copy of @info.
+ */
+BDZFSBookmarkInfo* bd_zfs_bookmark_info_copy (BDZFSBookmarkInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSBookmarkInfo *new_info = g_new0 (BDZFSBookmarkInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->creation = info->creation;
+
+    return new_info;
+}
+
+/**
+ * bd_zfs_bookmark_info_free: (skip)
+ * @info: (nullable): %BDZFSBookmarkInfo to free
+ *
+ * Frees @info.
+ */
+void bd_zfs_bookmark_info_free (BDZFSBookmarkInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
+    g_free (info);
+}
+
+GType bd_zfs_bookmark_info_get_type () {
+    static GType type = 0;
+
+    if (G_UNLIKELY(type == 0)) {
+        type = g_boxed_type_register_static("BDZFSBookmarkInfo",
+                                            (GBoxedCopyFunc) bd_zfs_bookmark_info_copy,
+                                            (GBoxedFreeFunc) bd_zfs_bookmark_info_free);
     }
 
     return type;
@@ -1203,11 +1255,11 @@ gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error);
  *
  * Lists ZFS bookmarks for the given dataset or all bookmarks.
  *
- * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of #BDZFSPropertyInfo or %NULL in case of error
+ * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of #BDZFSBookmarkInfo or %NULL in case of error
  *
  * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_QUERY
  */
-BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error);
+BDZFSBookmarkInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error);
 
 /**
  * bd_zfs_encryption_load_key:

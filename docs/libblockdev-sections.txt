@@ -909,6 +909,9 @@ bd_zfs_dataset_info_free
 BDZFSSnapshotInfo
 bd_zfs_snapshot_info_copy
 bd_zfs_snapshot_info_free
+BDZFSBookmarkInfo
+bd_zfs_bookmark_info_copy
+bd_zfs_bookmark_info_free
 BDZFSPropertyInfo
 bd_zfs_property_info_copy
 bd_zfs_property_info_free

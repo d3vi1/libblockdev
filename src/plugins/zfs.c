@@ -80,8 +80,6 @@ BDZFSVdevInfo* bd_zfs_vdev_info_copy (BDZFSVdevInfo *info) {
     new_info->path = g_strdup (info->path);
     new_info->type = info->type;
     new_info->state = info->state;
-    new_info->alloc = info->alloc;
-    new_info->space = info->space;
     new_info->read_errors = info->read_errors;
     new_info->write_errors = info->write_errors;
     new_info->checksum_errors = info->checksum_errors;
@@ -171,6 +169,26 @@ void bd_zfs_snapshot_info_free (BDZFSSnapshotInfo *info) {
     g_free (info->name);
     g_free (info->dataset);
     g_free (info->creation);
+    g_free (info);
+}
+
+BDZFSBookmarkInfo* bd_zfs_bookmark_info_copy (BDZFSBookmarkInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDZFSBookmarkInfo *new_info = g_new0 (BDZFSBookmarkInfo, 1);
+
+    new_info->name = g_strdup (info->name);
+    new_info->creation = info->creation;
+
+    return new_info;
+}
+
+void bd_zfs_bookmark_info_free (BDZFSBookmarkInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->name);
     g_free (info);
 }
 
@@ -3068,11 +3086,11 @@ gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error) {
  * Lists ZFS bookmarks for the given dataset or all bookmarks.
  *
  * Returns: (array zero-terminated=1) (transfer full): a NULL-terminated array of
- *          #BDZFSPropertyInfo or %NULL in case of error
+ *          #BDZFSBookmarkInfo or %NULL in case of error
  *
  * Tech category: %BD_ZFS_TECH_SNAPSHOT-%BD_ZFS_TECH_MODE_QUERY
  */
-BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) {
+BDZFSBookmarkInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) {
     const gchar **argv = NULL;
     guint next_arg = 0;
     guint num_args;
@@ -3125,7 +3143,7 @@ BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) 
     for (line_p = lines; *line_p; line_p++) {
         gchar **fields = NULL;
         guint num_fields;
-        BDZFSPropertyInfo *info = NULL;
+        BDZFSBookmarkInfo *info = NULL;
 
         if (strlen (*line_p) == 0)
             continue;
@@ -3138,10 +3156,9 @@ BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) 
             continue;
         }
 
-        info = g_new0 (BDZFSPropertyInfo, 1);
+        info = g_new0 (BDZFSBookmarkInfo, 1);
         info->name = g_strdup (fields[0]);
-        info->value = g_strdup (fields[1]);
-        info->source = g_strdup ("");
+        info->creation = g_ascii_strtoull (fields[1], NULL, 10);
 
         g_strfreev (fields);
         g_ptr_array_add (bookmarks, info);
@@ -3149,7 +3166,7 @@ BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) 
     g_strfreev (lines);
 
     g_ptr_array_add (bookmarks, NULL);
-    return (BDZFSPropertyInfo **) g_ptr_array_free (bookmarks, FALSE);
+    return (BDZFSBookmarkInfo **) g_ptr_array_free (bookmarks, FALSE);
 }
 
 /**
