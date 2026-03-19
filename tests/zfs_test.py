@@ -221,6 +221,56 @@ class ZfsOptionInjectionTestCase(ZfsPluginTest):
         with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
             BlockDev.zfs_dataset_inherit_property("pool/ds", "--help")
 
+    # ---- nullable parameter validation ----
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_set_property_rejects_null_value(self):
+        """pool_set_property must reject NULL/None value"""
+        with self.assertRaisesRegex(GLib.GError, "cannot be NULL or empty"):
+            BlockDev.zfs_pool_set_property("testpool", "comment", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_pool_set_property_rejects_empty_value(self):
+        """pool_set_property must reject empty value"""
+        with self.assertRaisesRegex(GLib.GError, "cannot be NULL or empty"):
+            BlockDev.zfs_pool_set_property("testpool", "comment", "")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_set_property_rejects_null_value(self):
+        """dataset_set_property must reject NULL/None value"""
+        with self.assertRaisesRegex(GLib.GError, "cannot be NULL or empty"):
+            BlockDev.zfs_dataset_set_property("pool/ds", "mountpoint", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_set_property_rejects_empty_value(self):
+        """dataset_set_property must reject empty value"""
+        with self.assertRaisesRegex(GLib.GError, "cannot be NULL or empty"):
+            BlockDev.zfs_dataset_set_property("pool/ds", "mountpoint", "")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_mount_rejects_option_mountpoint(self):
+        """dataset_mount must reject mountpoint starting with '-'"""
+        with self.assertRaisesRegex(GLib.GError, "cannot be empty or start with '-'"):
+            BlockDev.zfs_dataset_mount("pool/ds", "--help", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_dataset_mount_rejects_empty_mountpoint(self):
+        """dataset_mount must reject empty mountpoint"""
+        with self.assertRaisesRegex(GLib.GError, "cannot be empty or start with '-'"):
+            BlockDev.zfs_dataset_mount("pool/ds", "", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_load_key_rejects_option_key_location(self):
+        """encryption_load_key must reject key_location starting with '-'"""
+        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+            BlockDev.zfs_encryption_load_key("pool/ds", "--help")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_change_key_rejects_option_new_key_location(self):
+        """encryption_change_key must reject new_key_location starting with '-'"""
+        with self.assertRaisesRegex(GLib.GError, "cannot start with '-'"):
+            BlockDev.zfs_encryption_change_key("pool/ds", "--help", None)
+
     # NOTE: bd_zfs_pool_get_vdevs() bugs (double-free on depth overflow and
     # regex recompilation in hot loop) were fixed in commit
     # fix/s1-4-vdev-parser-safety and verified by code review + defensive
