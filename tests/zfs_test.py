@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 import overrides_hack
-from utils import TestTags, tag_test, required_plugins
+from utils import fake_utils, fake_path, TestTags, tag_test, required_plugins
 
 import gi
 gi.require_version('GLib', '2.0')
@@ -1315,3 +1315,146 @@ class ZfsVdevInferTypeTestCase(ZfsPluginTest):
         """An unrecognized name must return UNKNOWN"""
         self.assertEqual(BlockDev.zfs_vdev_infer_type("foobar"),
                          BlockDev.ZFSVdevType.UNKNOWN)
+
+
+# ---------------------------------------------------------------------------
+# Capability gating tests
+# ---------------------------------------------------------------------------
+
+class ZfsCapabilityGatingOldVersion(ZfsPluginTest):
+    """Test capability gating with an old OpenZFS version (0.6.3).
+
+    At this version, bookmarks (0.6.4+), trim (0.8.0+), scrub-pause (0.8.0+),
+    and encryption (0.8.0+) should all be gated.
+    """
+
+    def setUp(self):
+        """Reinit under the fake old-version zfs/zpool tools."""
+        self._fake_ctx = fake_utils("tests/fake_utils/zfs_old_version")
+        self._fake_ctx.__enter__()
+        BlockDev.reinit(self.requested_plugins, True, None)
+
+    def tearDown(self):
+        """Restore real tools and reinit."""
+        self._fake_ctx.__exit__(None, None, None)
+        BlockDev.reinit(self.requested_plugins, True, None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_trim_gated_old_version(self):
+        """TRIM should be unavailable on OpenZFS < 0.8.0"""
+        with self.assertRaisesRegex(GLib.GError, "TRIM is not supported"):
+            BlockDev.zfs_pool_trim_start("testpool", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_trim_stop_gated_old_version(self):
+        """TRIM stop should be unavailable on OpenZFS < 0.8.0"""
+        with self.assertRaisesRegex(GLib.GError, "TRIM is not supported"):
+            BlockDev.zfs_pool_trim_stop("testpool", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_scrub_pause_gated_old_version(self):
+        """Scrub pause should be unavailable on OpenZFS < 0.8.0"""
+        with self.assertRaisesRegex(GLib.GError, "Scrub pause is not supported"):
+            BlockDev.zfs_pool_scrub_pause("testpool")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_bookmark_create_gated_old_version(self):
+        """Bookmark create should be unavailable on OpenZFS < 0.6.4"""
+        with self.assertRaisesRegex(GLib.GError, "Bookmarks is not supported"):
+            BlockDev.zfs_bookmark_create("pool@snap", "pool#bm")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_bookmark_destroy_gated_old_version(self):
+        """Bookmark destroy should be unavailable on OpenZFS < 0.6.4"""
+        with self.assertRaisesRegex(GLib.GError, "Bookmarks is not supported"):
+            BlockDev.zfs_bookmark_destroy("pool#bm")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_bookmark_list_gated_old_version(self):
+        """Bookmark list should be unavailable on OpenZFS < 0.6.4"""
+        with self.assertRaisesRegex(GLib.GError, "Bookmarks is not supported"):
+            BlockDev.zfs_bookmark_list(None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_load_key_gated_old_version(self):
+        """Encryption load-key should be unavailable on OpenZFS < 0.8.0"""
+        with self.assertRaisesRegex(GLib.GError, "Encryption is not supported"):
+            BlockDev.zfs_encryption_load_key("pool/ds", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_unload_key_gated_old_version(self):
+        """Encryption unload-key should be unavailable on OpenZFS < 0.8.0"""
+        with self.assertRaisesRegex(GLib.GError, "Encryption is not supported"):
+            BlockDev.zfs_encryption_unload_key("pool/ds")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_change_key_gated_old_version(self):
+        """Encryption change-key should be unavailable on OpenZFS < 0.8.0"""
+        with self.assertRaisesRegex(GLib.GError, "Encryption is not supported"):
+            BlockDev.zfs_encryption_change_key("pool/ds", None, None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_key_status_gated_old_version(self):
+        """Encryption key-status should be unavailable on OpenZFS < 0.8.0"""
+        with self.assertRaisesRegex(GLib.GError, "Encryption is not supported"):
+            BlockDev.zfs_encryption_key_status("pool/ds")
+
+
+class ZfsCapabilityGatingMidVersion(ZfsPluginTest):
+    """Test capability gating with OpenZFS 0.7.0.
+
+    At this version, bookmarks should pass the capability check (>= 0.6.4)
+    but trim, scrub-pause, and encryption should still be gated (require 0.8.0+).
+    The bookmark calls will fail at the CLI execution level (fake tool returns
+    error), but they must NOT fail at the capability-gating level.
+    """
+
+    def setUp(self):
+        """Reinit under the fake mid-version zfs/zpool tools."""
+        self._fake_ctx = fake_utils("tests/fake_utils/zfs_mid_version")
+        self._fake_ctx.__enter__()
+        BlockDev.reinit(self.requested_plugins, True, None)
+
+    def tearDown(self):
+        """Restore real tools and reinit."""
+        self._fake_ctx.__exit__(None, None, None)
+        BlockDev.reinit(self.requested_plugins, True, None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_trim_still_gated_mid_version(self):
+        """TRIM should still be unavailable on OpenZFS 0.7.0"""
+        with self.assertRaisesRegex(GLib.GError, "TRIM is not supported"):
+            BlockDev.zfs_pool_trim_start("testpool", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_scrub_pause_still_gated_mid_version(self):
+        """Scrub pause should still be unavailable on OpenZFS 0.7.0"""
+        with self.assertRaisesRegex(GLib.GError, "Scrub pause is not supported"):
+            BlockDev.zfs_pool_scrub_pause("testpool")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_encryption_still_gated_mid_version(self):
+        """Encryption should still be unavailable on OpenZFS 0.7.0"""
+        with self.assertRaisesRegex(GLib.GError, "Encryption is not supported"):
+            BlockDev.zfs_encryption_load_key("pool/ds", None)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_bookmark_passes_cap_check_mid_version(self):
+        """Bookmarks cap check should pass on 0.7.0 (>= 0.6.4); the error
+        should come from the fake tool execution, not from capability gating."""
+        with self.assertRaises(GLib.GError) as cm:
+            BlockDev.zfs_bookmark_create("pool@snap", "pool#bm")
+        # The error must NOT be the capability-gating message
+        self.assertNotIn("Bookmarks is not supported", str(cm.exception))
+
+
+class ZfsCapabilityGatingMissingTools(ZfsPluginTest):
+    """Test that missing tools are detected before capability gating."""
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_missing_zpool_tool(self):
+        """With no zpool tool, pool operations should fail at the deps check."""
+        with fake_path(all_but="zpool"):
+            BlockDev.reinit(self.requested_plugins, True, None)
+            with self.assertRaisesRegex(GLib.GError, "utility is not available"):
+                BlockDev.zfs_pool_trim_start("testpool", None)

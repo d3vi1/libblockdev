@@ -1,0 +1,5 @@
+#!/bin/bash
+# Fake zpool tool pretending to be OpenZFS 0.6.3
+
+echo "fake zpool: unsupported command" >&2
+exit 1

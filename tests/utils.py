@@ -86,7 +86,7 @@ ALL_UTILS = {"lvm", "btrfs", "mkswap", "swaplabel", "multipath", "mpathconf", "d
              "mkntfs", "ntfsfix", "ntfsresize", "ntfslabel", "ntfsinfo",
              "mkfs.vfat", "fatlabel", "fsck.vfat", "vfat-resize",
              "mkfs.xfs", "xfs_db", "xfs_repair", "xfs_admin", "xfs_growfs",
-             "zpool", "zdb"}
+             "zpool", "zfs", "zdb"}
 
 @contextmanager
 def fake_path(path=None, keep_utils=None, all_but=None):
