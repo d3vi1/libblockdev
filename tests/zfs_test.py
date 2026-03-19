@@ -270,3 +270,109 @@ class ZfsVersionTestCase(ZfsPluginTest):
         version1 = BlockDev.zfs_get_zfs_version()
         version2 = BlockDev.zfs_get_zfs_version()
         self.assertEqual(version1, version2)
+
+
+class ZfsCapabilityTestCase(ZfsPluginTest):
+    """Tests for the runtime capability model in bd_zfs_is_tech_avail()."""
+
+    def _skip_unless_zfs_tools(self):
+        """Helper: skip the test if ZFS tools are not available."""
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.POOL, BlockDev.ZFSTechMode.QUERY)
+        except GLib.GError:
+            self.skipTest("skipping: ZFS tools not available")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_pool_query(self):
+        """is_tech_avail returns TRUE for POOL+QUERY when tools available"""
+        self._skip_unless_zfs_tools()
+        avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.POOL, BlockDev.ZFSTechMode.QUERY)
+        self.assertTrue(avail)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_pool_create(self):
+        """is_tech_avail returns TRUE for POOL+CREATE when tools available"""
+        self._skip_unless_zfs_tools()
+        avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.POOL, BlockDev.ZFSTechMode.CREATE)
+        self.assertTrue(avail)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_vdev(self):
+        """is_tech_avail returns TRUE for VDEV+QUERY when tools available"""
+        self._skip_unless_zfs_tools()
+        avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.VDEV, BlockDev.ZFSTechMode.QUERY)
+        self.assertTrue(avail)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_dataset(self):
+        """is_tech_avail returns TRUE for DATASET+QUERY when tools available"""
+        self._skip_unless_zfs_tools()
+        avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.DATASET, BlockDev.ZFSTechMode.QUERY)
+        self.assertTrue(avail)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_snapshot(self):
+        """is_tech_avail returns TRUE for SNAPSHOT+QUERY when tools available"""
+        self._skip_unless_zfs_tools()
+        avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.SNAPSHOT, BlockDev.ZFSTechMode.QUERY)
+        self.assertTrue(avail)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_zvol(self):
+        """is_tech_avail returns TRUE for ZVOL+QUERY when tools available"""
+        self._skip_unless_zfs_tools()
+        avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.ZVOL, BlockDev.ZFSTechMode.QUERY)
+        self.assertTrue(avail)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_encryption(self):
+        """is_tech_avail returns a result for ENCRYPTION tech without crashing"""
+        self._skip_unless_zfs_tools()
+        # Encryption availability depends on version; just verify no crash
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.ENCRYPTION, BlockDev.ZFSTechMode.QUERY)
+        except GLib.GError:
+            pass  # Expected if version < 0.8.0
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_maintenance_query(self):
+        """is_tech_avail returns TRUE for MAINTENANCE+QUERY when tools available"""
+        self._skip_unless_zfs_tools()
+        avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.MAINTENANCE, BlockDev.ZFSTechMode.QUERY)
+        self.assertTrue(avail)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_maintenance_modify(self):
+        """is_tech_avail returns a result for MAINTENANCE+MODIFY without crashing"""
+        self._skip_unless_zfs_tools()
+        # MODIFY mode requires version >= 0.8.0; just verify no crash
+        try:
+            BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.MAINTENANCE, BlockDev.ZFSTechMode.MODIFY)
+        except GLib.GError:
+            pass  # Expected if version < 0.8.0
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_encryption_true_on_modern_zfs(self):
+        """is_tech_avail returns TRUE for ENCRYPTION on OpenZFS >= 0.8.0"""
+        self._skip_unless_zfs_tools()
+        version = BlockDev.zfs_get_zfs_version()
+        parts = version.split(".")
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        if major < 1 and minor < 8:
+            self.skipTest("skipping: OpenZFS < 0.8.0")
+        avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.ENCRYPTION, BlockDev.ZFSTechMode.QUERY)
+        self.assertTrue(avail)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_is_tech_avail_maintenance_modify_true_on_modern_zfs(self):
+        """is_tech_avail returns TRUE for MAINTENANCE+MODIFY on OpenZFS >= 0.8.0"""
+        self._skip_unless_zfs_tools()
+        version = BlockDev.zfs_get_zfs_version()
+        parts = version.split(".")
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        if major < 1 and minor < 8:
+            self.skipTest("skipping: OpenZFS < 0.8.0")
+        avail = BlockDev.zfs_is_tech_avail(BlockDev.ZFSTech.MAINTENANCE, BlockDev.ZFSTechMode.MODIFY)
+        self.assertTrue(avail)

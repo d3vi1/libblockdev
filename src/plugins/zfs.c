@@ -384,6 +384,35 @@ probe_zfs_version (GError **error) {
 }
 
 /**
+ * zfs_version_at_least:
+ * @major: required major version
+ * @minor: required minor version
+ * @patch: required patch version
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Checks whether the installed ZFS version is at least @major.@minor.@patch.
+ * Probes and caches the version on first call.
+ *
+ * Returns: %TRUE if the installed version is >= the requested version,
+ *          %FALSE otherwise (or on error)
+ */
+static gboolean
+zfs_version_at_least (guint major, guint minor, guint patch, GError **error) {
+    const gchar *version = probe_zfs_version (error);
+    if (!version)
+        return FALSE;
+
+    guint v_major = 0, v_minor = 0, v_patch = 0;
+    sscanf (version, "%u.%u.%u", &v_major, &v_minor, &v_patch);
+
+    if (v_major > major) return TRUE;
+    if (v_major < major) return FALSE;
+    if (v_minor > minor) return TRUE;
+    if (v_minor < minor) return FALSE;
+    return v_patch >= patch;
+}
+
+/**
  * bd_zfs_init:
  *
  * Initializes the plugin. **This function is called automatically by the
@@ -418,14 +447,41 @@ void bd_zfs_close (void) {
  * @mode: a bit mask of queried modes of operation (#BDZFSTechMode) for @tech
  * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
  *
- * Returns: whether the @tech-@mode combination is available -- both combos
- *          require the ``zpool`` and ``zfs`` utilities
+ * Returns: whether the @tech-@mode combination is available -- supported by the
+ *          plugin implementation and having all the runtime dependencies available
  *
  * Tech category: always available
  */
-gboolean bd_zfs_is_tech_avail (BDZFSTech tech G_GNUC_UNUSED, guint64 mode G_GNUC_UNUSED, GError **error) {
-    /* all techs require both zpool and zfs tools */
-    return check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error);
+gboolean bd_zfs_is_tech_avail (BDZFSTech tech, guint64 mode, GError **error) {
+    /* All tech modes need at minimum zpool and zfs tools */
+    if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    switch (tech) {
+    case BD_ZFS_TECH_POOL:
+    case BD_ZFS_TECH_VDEV:
+    case BD_ZFS_TECH_DATASET:
+    case BD_ZFS_TECH_SNAPSHOT:
+    case BD_ZFS_TECH_ZVOL:
+        /* Basic pool/dataset/snapshot/vdev/zvol operations need only the tools */
+        return TRUE;
+
+    case BD_ZFS_TECH_ENCRYPTION:
+        /* Encryption needs OpenZFS 0.8.0+ */
+        return zfs_version_at_least (0, 8, 0, error);
+
+    case BD_ZFS_TECH_MAINTENANCE:
+        /* Maintenance (trim, scrub-pause) needs OpenZFS 0.8.0+ for full features */
+        /* But scrub-start/stop and status work on any version, so only gate MODIFY */
+        if (mode & BD_ZFS_TECH_MODE_MODIFY)
+            return zfs_version_at_least (0, 8, 0, error);
+        return TRUE;
+
+    default:
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_TECH_UNAVAIL,
+                     "Unknown/unsupported ZFS technology");
+        return FALSE;
+    }
 }
 
 static BDZFSPoolState parse_pool_state (const gchar *state_str) {
@@ -1515,6 +1571,11 @@ gboolean bd_zfs_pool_scrub_pause (const gchar *name, GError **error) {
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
+    if (!zfs_version_at_least (0, 8, 0, error)) {
+        g_prefix_error (error, "ZFS scrub pause requires OpenZFS 0.8.0+: ");
+        return FALSE;
+    }
+
     return bd_utils_exec_and_report_error (argv, NULL, error);
 }
 
@@ -1805,6 +1866,11 @@ gboolean bd_zfs_pool_trim_start (const gchar *name, const gchar *vdev, GError **
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
+    if (!zfs_version_at_least (0, 8, 0, error)) {
+        g_prefix_error (error, "ZFS trim requires OpenZFS 0.8.0+: ");
+        return FALSE;
+    }
+
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "trim";
     argv[next_arg++] = "--";
@@ -1840,6 +1906,11 @@ gboolean bd_zfs_pool_trim_stop (const gchar *name, const gchar *vdev, GError **e
 
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
+
+    if (!zfs_version_at_least (0, 8, 0, error)) {
+        g_prefix_error (error, "ZFS trim requires OpenZFS 0.8.0+: ");
+        return FALSE;
+    }
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "trim";
@@ -2889,6 +2960,11 @@ gboolean bd_zfs_bookmark_create (const gchar *snapshot, const gchar *bookmark, G
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
+    if (!zfs_version_at_least (0, 6, 4, error)) {
+        g_prefix_error (error, "ZFS bookmarks require OpenZFS 0.6.4+: ");
+        return FALSE;
+    }
+
     return bd_utils_exec_and_report_error (argv, NULL, error);
 }
 
@@ -2911,6 +2987,11 @@ gboolean bd_zfs_bookmark_destroy (const gchar *name, GError **error) {
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
+
+    if (!zfs_version_at_least (0, 6, 4, error)) {
+        g_prefix_error (error, "ZFS bookmarks require OpenZFS 0.6.4+: ");
+        return FALSE;
+    }
 
     return bd_utils_exec_and_report_error (argv, NULL, error);
 }
@@ -2942,6 +3023,11 @@ BDZFSPropertyInfo** bd_zfs_bookmark_list (const gchar *dataset, GError **error) 
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return NULL;
+
+    if (!zfs_version_at_least (0, 6, 4, error)) {
+        g_prefix_error (error, "ZFS bookmarks require OpenZFS 0.6.4+: ");
+        return NULL;
+    }
 
     /* zfs list -H -p -t bookmark -o name,creation [-- dataset] NULL */
     num_args = 8 + (dataset ? 2 : 0) + 1;
@@ -3025,6 +3111,11 @@ gboolean bd_zfs_encryption_load_key (const gchar *dataset, const gchar *key_loca
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
+    if (!zfs_version_at_least (0, 8, 0, error)) {
+        g_prefix_error (error, "ZFS encryption requires OpenZFS 0.8.0+: ");
+        return FALSE;
+    }
+
     if (key_location == NULL) {
         /* Use the dataset's own keylocation property */
         const gchar *argv[] = {"zfs", "load-key", "--", dataset, NULL};
@@ -3061,6 +3152,11 @@ gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error) {
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
+    if (!zfs_version_at_least (0, 8, 0, error)) {
+        g_prefix_error (error, "ZFS encryption requires OpenZFS 0.8.0+: ");
+        return FALSE;
+    }
+
     return bd_utils_exec_and_report_error (argv, NULL, error);
 }
 
@@ -3087,6 +3183,11 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
+
+    if (!zfs_version_at_least (0, 8, 0, error)) {
+        g_prefix_error (error, "ZFS encryption requires OpenZFS 0.8.0+: ");
+        return FALSE;
+    }
 
     if (new_key_location == NULL) {
         /* Inherit key from parent */
@@ -3126,6 +3227,11 @@ BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **erro
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return BD_ZFS_KEY_STATUS_NONE;
+
+    if (!zfs_version_at_least (0, 8, 0, error)) {
+        g_prefix_error (error, "ZFS encryption requires OpenZFS 0.8.0+: ");
+        return BD_ZFS_KEY_STATUS_NONE;
+    }
 
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
     if (!success) {
