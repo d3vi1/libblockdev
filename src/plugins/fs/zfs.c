@@ -264,48 +264,60 @@ gboolean bd_fs_zfs_set_label (const gchar *device, const gchar *label, GError **
  * @label: label to check
  * @error: (out) (optional): place to store error
  *
+ * Validates that @label is a valid ZFS pool name per canonical OpenZFS naming
+ * rules (see zpool_name_valid() in OpenZFS).  This function intentionally
+ * mirrors the logic in bd_zfs_validate_pool_name() from the ZFS top-level
+ * plugin; the two cannot call each other at runtime because libbd_fs and
+ * libbd_zfs are separate shared libraries.  Any changes to naming rules must
+ * be applied to both functions.
+ *
+ * Deliberate deviation from upstream OpenZFS: spaces are rejected even though
+ * OpenZFS technically allows them in pool names.  Spaces break shell quoting,
+ * D-Bus object paths, and systemd mount units; no sane deployment uses them.
+ *
  * Returns: whether @label is a valid label for a ZFS pool or not
  *          (reason is provided in @error)
  *
  * Tech category: always available
  */
 gboolean bd_fs_zfs_check_label (const gchar *label, GError **error) {
-    /* ZFS pool names: 1-255 chars, alphanumeric + _ - . : (no leading digit, no leading -) */
     if (label == NULL || *label == '\0') {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_LABEL_INVALID,
-                     "ZFS pool name cannot be empty");
+                     "ZFS pool name cannot be NULL or empty");
         return FALSE;
     }
 
-    if (strlen (label) > 255) {
+    /* Max pool name length: ZFS_MAX_DATASET_NAME_LEN(256) - 2 - strlen("$ORIGIN")*2 = 240 */
+    if (strlen (label) >= 240) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_LABEL_INVALID,
-                     "ZFS pool name too long (max 255 characters)");
+                     "ZFS pool name exceeds maximum length of 239 characters");
         return FALSE;
     }
 
-    /* Must not start with digit or dash */
-    if (g_ascii_isdigit (label[0]) || label[0] == '-') {
+    /* Must begin with a letter */
+    if (!g_ascii_isalpha (label[0])) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_LABEL_INVALID,
-                     "ZFS pool name must not start with a digit or dash");
+                     "ZFS pool name must begin with a letter: '%s'", label);
         return FALSE;
     }
 
-    /* Only alphanumeric, underscore, dash, period, colon */
-    for (const gchar *p = label; *p; p++) {
+    /* Only allowed characters: alphanumerics, underscore, hyphen, period, colon */
+    for (const gchar *p = label; *p != '\0'; p++) {
         if (!g_ascii_isalnum (*p) && *p != '_' && *p != '-' && *p != '.' && *p != ':') {
             g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_LABEL_INVALID,
-                         "ZFS pool name contains invalid character '%c'", *p);
+                         "ZFS pool name contains invalid character '%c': '%s'", *p, label);
             return FALSE;
         }
     }
 
-    /* Reserved names */
-    if (g_strcmp0 (label, "mirror") == 0 || g_strcmp0 (label, "raidz") == 0 ||
-        g_strcmp0 (label, "draid") == 0 || g_strcmp0 (label, "spare") == 0 ||
-        g_strcmp0 (label, "log") == 0 || g_strcmp0 (label, "cache") == 0 ||
-        g_strcmp0 (label, "special") == 0 || g_strcmp0 (label, "dedup") == 0) {
+    /* Reserved vdev type prefixes per OpenZFS zpool_name_valid() */
+    if (g_ascii_strncasecmp (label, "mirror", 6) == 0 ||
+        g_ascii_strncasecmp (label, "raidz", 5) == 0 ||
+        g_ascii_strncasecmp (label, "draid", 5) == 0 ||
+        g_ascii_strncasecmp (label, "spare", 5) == 0 ||
+        g_ascii_strcasecmp (label, "log") == 0) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_LABEL_INVALID,
-                     "ZFS pool name '%s' is reserved", label);
+                     "ZFS pool name '%s' conflicts with a reserved vdev type name", label);
         return FALSE;
     }
 
