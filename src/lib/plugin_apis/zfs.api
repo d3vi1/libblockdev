@@ -1460,4 +1460,20 @@ gchar* bd_zfs_pool_history (const gchar *name, GError **error);
  */
 const gchar* bd_zfs_get_zfs_version (GError **error);
 
+/**
+ * bd_zfs_validate_pool_name:
+ * @name: the pool name to validate
+ * @error: (out) (optional): place to store error
+ *
+ * Validates that @name is a valid ZFS pool name per OpenZFS naming rules:
+ * must begin with a letter, contain only alphanumerics/underscore/hyphen/period/colon,
+ * must not be a reserved vdev type name, must not begin with 'c' followed by a digit,
+ * and must not exceed 255 characters.
+ *
+ * Returns: %TRUE if valid, %FALSE on error with @error set
+ *
+ * Tech category: always available
+ */
+gboolean bd_zfs_validate_pool_name (const gchar *name, GError **error);
+
 #endif /* BD_ZFS_API */
