@@ -2104,6 +2104,12 @@ gboolean bd_zfs_pool_set_property (const gchar *name, const gchar *property, con
     if (!validate_name_not_option (property, "Property name", error))
         return FALSE;
 
+    if (value == NULL || *value == '\0') {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                     "Property value cannot be NULL or empty");
+        return FALSE;
+    }
+
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
@@ -2278,7 +2284,7 @@ static BDZFSDatasetInfo* parse_dataset_info_line (const gchar *line, gboolean ha
 
 /**
  * bd_zfs_dataset_create:
- * @name: name of the dataset to create (e.g. "pool/dataset")
+ * @name: fully-qualified dataset name (e.g., "pool/dataset")
  * @extra: (nullable) (array zero-terminated=1): extra options for dataset creation (e.g. -o property=value)
  * @error: (out) (optional): place to store error (if any)
  *
@@ -2563,6 +2569,14 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
     if (!validate_name_not_option (name, "Dataset name", error))
         return FALSE;
 
+    if (mountpoint != NULL) {
+        if (*mountpoint == '\0' || *mountpoint == '-') {
+            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                         "Mountpoint cannot be empty or start with '-'");
+            return FALSE;
+        }
+    }
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
@@ -2694,6 +2708,12 @@ gboolean bd_zfs_dataset_set_property (const gchar *name, const gchar *property, 
     if (!validate_name_not_option (property, "Property name", error))
         return FALSE;
 
+    if (value == NULL || *value == '\0') {
+        g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                     "Property value cannot be NULL or empty");
+        return FALSE;
+    }
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
@@ -2815,7 +2835,7 @@ static BDZFSSnapshotInfo* parse_snapshot_info_line (const gchar *line) {
 
 /**
  * bd_zfs_snapshot_create:
- * @name: full snapshot name (dataset@snapname)
+ * @name: fully-qualified snapshot name (e.g., "pool/dataset@snapname")
  * @recursive: whether to recursively snapshot all descendant datasets
  * @extra: (nullable) (array zero-terminated=1): extra options for snapshot creation
  * @error: (out) (optional): place to store error (if any)
@@ -2850,7 +2870,7 @@ gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
 
 /**
  * bd_zfs_snapshot_destroy:
- * @name: full snapshot name (dataset@snapname)
+ * @name: fully-qualified snapshot name (e.g., "pool/dataset@snapname")
  * @recursive: whether to recursively destroy all dependent snapshots
  * @error: (out) (optional): place to store error (if any)
  *
@@ -2957,7 +2977,7 @@ BDZFSSnapshotInfo** bd_zfs_snapshot_list (const gchar *dataset, gboolean recursi
 
 /**
  * bd_zfs_snapshot_rollback:
- * @name: full snapshot name (dataset@snapname)
+ * @name: fully-qualified snapshot name (e.g., "pool/dataset@snapname")
  * @force: whether to force unmount of any clones
  * @destroy_newer: whether to destroy any snapshots more recent than the given one
  * @error: (out) (optional): place to store error (if any)
@@ -2993,8 +3013,8 @@ gboolean bd_zfs_snapshot_rollback (const gchar *name, gboolean force, gboolean d
 
 /**
  * bd_zfs_snapshot_clone:
- * @snapshot: full snapshot name (dataset@snapname) to clone from
- * @clone_name: name for the new clone dataset
+ * @snapshot: fully-qualified snapshot name (e.g., "pool/dataset@snapname") to clone from
+ * @clone_name: fully-qualified clone name (e.g., "pool/clone"); if no "/" is present, the pool name from the snapshot is prepended
  * @extra: (nullable) (array zero-terminated=1): extra options for clone creation
  * @error: (out) (optional): place to store error (if any)
  *
@@ -3022,8 +3042,8 @@ gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
 
 /**
  * bd_zfs_bookmark_create:
- * @snapshot: full snapshot name (dataset@snapname) to bookmark
- * @bookmark: full bookmark name (dataset#bookmark)
+ * @snapshot: fully-qualified snapshot name (e.g., "pool/dataset@snapname") to bookmark
+ * @bookmark: fully-qualified bookmark name (e.g., "pool/dataset#bookmark")
  * @error: (out) (optional): place to store error (if any)
  *
  * Creates a ZFS bookmark from an existing snapshot.
@@ -3191,6 +3211,14 @@ gboolean bd_zfs_encryption_load_key (const gchar *dataset, const gchar *key_loca
     if (!validate_name_not_option (dataset, "Dataset name", error))
         return FALSE;
 
+    if (key_location != NULL && *key_location != '\0') {
+        if (*key_location == '-') {
+            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                         "Key location cannot start with '-'");
+            return FALSE;
+        }
+    }
+
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
@@ -3263,6 +3291,14 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
                                         const BDExtraArg **extra, GError **error) {
     if (!validate_name_not_option (dataset, "Dataset name", error))
         return FALSE;
+
+    if (new_key_location != NULL && *new_key_location != '\0') {
+        if (*new_key_location == '-') {
+            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                         "New key location cannot start with '-'");
+            return FALSE;
+        }
+    }
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -3340,7 +3376,7 @@ BDZFSKeyStatus bd_zfs_encryption_key_status (const gchar *dataset, GError **erro
 
 /**
  * bd_zfs_zvol_create:
- * @name: name of the zvol to create (e.g. "pool/zvol")
+ * @name: fully-qualified zvol name (e.g., "pool/zvol")
  * @size: size of the zvol in bytes
  * @sparse: whether to create a sparse (thin provisioned) zvol
  * @extra: (nullable) (array zero-terminated=1): extra options for zvol creation
