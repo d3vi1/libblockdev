@@ -16,6 +16,7 @@
  */
 
 #include <glib.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <blockdev/utils.h>
@@ -284,6 +285,58 @@ validate_name_not_option (const gchar *name, const gchar *param_name, GError **e
         return FALSE;
     }
     return TRUE;
+}
+
+/**
+ * count_extra_args:
+ * @extra: (nullable): NULL-terminated array of #BDExtraArg pointers
+ *
+ * Counts the number of non-empty opt/val strings in @extra that will
+ * be appended to a command-line argv array.
+ *
+ * Returns: the total number of argv slots needed for all extra args
+ */
+static guint
+count_extra_args (const BDExtraArg **extra) {
+    guint n = 0;
+    const BDExtraArg **p;
+
+    if (!extra)
+        return 0;
+
+    for (p = extra; *p; p++) {
+        if ((*p)->opt && (g_strcmp0 ((*p)->opt, "") != 0))
+            n++;
+        if ((*p)->val && (g_strcmp0 ((*p)->val, "") != 0))
+            n++;
+    }
+    return n;
+}
+
+/**
+ * append_extra_args:
+ * @argv: the command-line argument array being built
+ * @next_arg: (inout): pointer to the current insertion index; advanced for
+ *            each appended element
+ * @extra: (nullable): NULL-terminated array of #BDExtraArg pointers
+ *
+ * Appends the non-empty opt/val strings from @extra into @argv starting
+ * at position *@next_arg.  The caller must have allocated enough space
+ * (see count_extra_args()).
+ */
+static void
+append_extra_args (const gchar **argv, guint *next_arg, const BDExtraArg **extra) {
+    const BDExtraArg **p;
+
+    if (!extra)
+        return;
+
+    for (p = extra; *p; p++) {
+        if ((*p)->opt && (g_strcmp0 ((*p)->opt, "") != 0))
+            argv[(*next_arg)++] = (*p)->opt;
+        if ((*p)->val && (g_strcmp0 ((*p)->val, "") != 0))
+            argv[(*next_arg)++] = (*p)->val;
+    }
 }
 
 /**
@@ -817,7 +870,6 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
     guint next_arg = 0;
     gboolean success = FALSE;
     const gchar **vdev_p = NULL;
-    const BDExtraArg **extra_p = NULL;
 
     if (!bd_zfs_validate_pool_name (name, error))
         return FALSE;
@@ -839,14 +891,7 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                num_extra++;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                num_extra++;
-        }
-    }
+    num_extra = count_extra_args (extra);
 
     /* zpool create [extras...] -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
     num_args = 4 + num_extra + num_vdevs + (raid_level ? 1 : 0) + 1;
@@ -854,14 +899,7 @@ gboolean bd_zfs_pool_create (const gchar *name, const gchar **vdevs, const gchar
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "create";
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                argv[next_arg++] = (*extra_p)->opt;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                argv[next_arg++] = (*extra_p)->val;
-        }
-    }
+    append_extra_args (argv, &next_arg, extra);
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     if (raid_level)
@@ -966,7 +1004,6 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
     guint num_extra = 0;
     gboolean success = FALSE;
     const gchar **dir_p = NULL;
-    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name_or_guid, "Pool name or GUID", error))
         return FALSE;
@@ -982,14 +1019,7 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
             num_dirs++;
     }
 
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                num_extra++;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                num_extra++;
-        }
-    }
+    num_extra = count_extra_args (extra);
 
     /* zpool import [-f] [-d dir1 -d dir2 ...] [extras...] -- <name_or_guid> [new_name] NULL */
     num_args = 4 + (force ? 1 : 0) + (num_dirs * 2) + num_extra + (new_name ? 1 : 0) + 1;
@@ -1005,14 +1035,7 @@ gboolean bd_zfs_pool_import (const gchar *name_or_guid, const gchar *new_name,
             argv[next_arg++] = *dir_p;
         }
     }
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                argv[next_arg++] = (*extra_p)->opt;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                argv[next_arg++] = (*extra_p)->val;
-        }
-    }
+    append_extra_args (argv, &next_arg, extra);
     argv[next_arg++] = "--";
     argv[next_arg++] = name_or_guid;
     if (new_name)
@@ -1471,7 +1494,6 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
     guint next_arg = 0;
     gboolean success = FALSE;
     const gchar **vdev_p = NULL;
-    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Pool name", error))
         return FALSE;
@@ -1493,14 +1515,7 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
     if (!check_deps (&avail_deps, DEPS_ZPOOL_MASK | DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                num_extra++;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                num_extra++;
-        }
-    }
+    num_extra = count_extra_args (extra);
 
     /* zpool add [extras...] -- <name> [raid_level] <vdev1> ... <vdevN> NULL */
     num_args = 4 + num_extra + num_vdevs + (raid_level ? 1 : 0) + 1;
@@ -1508,14 +1523,7 @@ gboolean bd_zfs_pool_add_vdev (const gchar *name, const gchar **vdevs, const gch
 
     argv[next_arg++] = "zpool";
     argv[next_arg++] = "add";
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                argv[next_arg++] = (*extra_p)->opt;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                argv[next_arg++] = (*extra_p)->val;
-        }
-    }
+    append_extra_args (argv, &next_arg, extra);
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     if (raid_level)
@@ -1877,6 +1885,145 @@ static guint64 parse_size_suffix (const gchar *str) {
     return (guint64) val;
 }
 
+/* ---- Scrub status parser helpers ---- */
+
+/**
+ * parse_scan_timestamp:
+ * @line: the scan status line to search
+ * @prefix: the prefix to look for (e.g. "since " or " on ")
+ *
+ * Extracts a timestamp string that follows @prefix in @line.
+ *
+ * Returns: (transfer full): a newly-allocated timestamp string, or %NULL.
+ */
+static gchar *
+parse_scan_timestamp (const gchar *line, const gchar *prefix)
+{
+    const gchar *pos = strstr (line, prefix);
+    if (pos) {
+        pos += strlen (prefix);
+        return g_strdup (pos);
+    }
+    return NULL;
+}
+
+/**
+ * parse_scan_error_count:
+ * @line: the line to search for "with N errors"
+ *
+ * Extracts the error count from a "with N errors" fragment.
+ *
+ * Returns: the parsed error count, or 0 if not found.
+ */
+static guint64
+parse_scan_error_count (const gchar *line)
+{
+    const gchar *with_err = strstr (line, "with ");
+    if (with_err) {
+        with_err += 5; /* skip "with " */
+        return g_ascii_strtoull (with_err, NULL, 10);
+    }
+    return 0;
+}
+
+/**
+ * parse_scan_progress:
+ * @info: the #BDZFSScrubInfo to populate with progress data.
+ * @next_line: the line immediately after the scan line (may be NULL).
+ * @line_p: pointer into the lines array at the scan line position.
+ *
+ * Parses scanned/issued/total bytes, percent done, and error count
+ * from the lines following the "scan:" line during an in-progress scrub.
+ */
+static void
+parse_scan_progress (BDZFSScrubInfo *info, const gchar *next_line, gchar **line_p)
+{
+    if (!next_line)
+        return;
+
+    gchar **tokens = g_regex_split_simple ("\\s+", next_line, 0, 0);
+    guint num_tokens = g_strv_length (tokens);
+
+    /* Look for "scanned" token to get scanned bytes */
+    for (guint i = 0; i + 1 < num_tokens; i++) {
+        if (g_strcmp0 (tokens[i + 1], "scanned") == 0 || g_str_has_prefix (tokens[i + 1], "scanned")) {
+            info->scanned_bytes = parse_size_suffix (tokens[i]);
+            break;
+        }
+    }
+
+    /* Look for "issued" token to get issued bytes */
+    for (guint i = 0; i + 1 < num_tokens; i++) {
+        if (g_strcmp0 (tokens[i + 1], "issued") == 0 || g_str_has_prefix (tokens[i + 1], "issued")) {
+            info->issued_bytes = parse_size_suffix (tokens[i]);
+            break;
+        }
+    }
+
+    /* Look for "total" token to get total bytes */
+    for (guint i = 0; i + 1 < num_tokens; i++) {
+        if (g_strcmp0 (tokens[i + 1], "total") == 0 || g_str_has_prefix (tokens[i + 1], "total")) {
+            info->total_bytes = parse_size_suffix (tokens[i]);
+            break;
+        }
+    }
+
+    g_strfreev (tokens);
+
+    /* Look for "% done" in subsequent lines */
+    for (gchar **lp = line_p + 1; *lp; lp++) {
+        if (strstr (*lp, "done")) {
+            gchar *pct = strstr (*lp, "% done");
+            if (!pct)
+                pct = strstr (*lp, "done");
+            if (pct) {
+                /* Walk backward from "% done" to find the number */
+                gchar *stripped_l = g_strstrip (g_strdup (*lp));
+                gchar **parts = g_regex_split_simple ("\\s+", stripped_l, 0, 0);
+                guint nparts = g_strv_length (parts);
+                for (guint j = 0; j < nparts; j++) {
+                    if (strstr (parts[j], "done") && j > 0) {
+                        /* The previous token or this token might contain the percentage */
+                        gchar *pct_str = parts[j];
+                        if (strstr (pct_str, "%")) {
+                            info->percent_done = g_ascii_strtod (pct_str, NULL);
+                        } else if (j > 0) {
+                            pct_str = parts[j - 1];
+                            /* Remove trailing % if present */
+                            gchar *pct_end = strchr (pct_str, '%');
+                            if (pct_end)
+                                *pct_end = '\0';
+                            info->percent_done = g_ascii_strtod (pct_str, NULL);
+                        }
+                        break;
+                    }
+                }
+                g_strfreev (parts);
+                g_free (stripped_l);
+            }
+            break;
+        }
+    }
+
+    /* Look for errors in subsequent lines */
+    for (gchar **lp = line_p + 1; *lp; lp++) {
+        if (strstr (*lp, "errors")) {
+            gchar *stripped_l = g_strstrip (g_strdup (*lp));
+            gchar **parts = g_regex_split_simple ("\\s+", stripped_l, 0, 0);
+            guint nparts = g_strv_length (parts);
+            for (guint j = 0; j + 1 < nparts; j++) {
+                if (g_strcmp0 (parts[j + 1], "errors") == 0) {
+                    info->errors = g_ascii_strtoull (parts[j], NULL, 10);
+                    break;
+                }
+            }
+            g_strfreev (parts);
+            g_free (stripped_l);
+            break;
+        }
+    }
+}
+
 /**
  * bd_zfs_pool_scrub_status:
  * @name: name of the pool to get scrub status for
@@ -1945,144 +2092,19 @@ BDZFSScrubInfo* bd_zfs_pool_scrub_status (const gchar *name, GError **error) {
 
     if (strstr (scan_line, "in progress")) {
         info->state = BD_ZFS_SCRUB_STATE_SCANNING;
-
-        /* Try to parse "since <timestamp>" */
-        {
-            const gchar *since = strstr (scan_line, "since ");
-            if (since) {
-                since += 6; /* skip "since " */
-                info->start_time = g_strdup (since);
-            }
-        }
-
-        /* Parse the next line for progress details */
-        /* Example: "1.23G scanned at 456M/s, 789M issued at 123M/s, 2.00G total" */
-        if (next_line) {
-            gchar **tokens = g_regex_split_simple ("\\s+", next_line, 0, 0);
-            guint num_tokens = g_strv_length (tokens);
-
-            /* Look for "scanned" token to get scanned bytes */
-            for (guint i = 0; i + 1 < num_tokens; i++) {
-                if (g_strcmp0 (tokens[i + 1], "scanned") == 0 || g_str_has_prefix (tokens[i + 1], "scanned")) {
-                    info->scanned_bytes = parse_size_suffix (tokens[i]);
-                    break;
-                }
-            }
-
-            /* Look for "issued" token to get issued bytes */
-            for (guint i = 0; i + 1 < num_tokens; i++) {
-                if (g_strcmp0 (tokens[i + 1], "issued") == 0 || g_str_has_prefix (tokens[i + 1], "issued")) {
-                    info->issued_bytes = parse_size_suffix (tokens[i]);
-                    break;
-                }
-            }
-
-            /* Look for "total" token to get total bytes */
-            for (guint i = 0; i + 1 < num_tokens; i++) {
-                if (g_strcmp0 (tokens[i + 1], "total") == 0 || g_str_has_prefix (tokens[i + 1], "total")) {
-                    info->total_bytes = parse_size_suffix (tokens[i]);
-                    break;
-                }
-            }
-
-            g_strfreev (tokens);
-
-            /* Look for "% done" in subsequent lines */
-            for (gchar **lp = line_p + 1; *lp; lp++) {
-                if (strstr (*lp, "done")) {
-                    gchar *pct = strstr (*lp, "% done");
-                    if (!pct)
-                        pct = strstr (*lp, "done");
-                    if (pct) {
-                        /* Walk backward from "% done" to find the number */
-                        gchar *stripped_l = g_strstrip (g_strdup (*lp));
-                        gchar **parts = g_regex_split_simple ("\\s+", stripped_l, 0, 0);
-                        guint nparts = g_strv_length (parts);
-                        for (guint j = 0; j < nparts; j++) {
-                            if (strstr (parts[j], "done") && j > 0) {
-                                /* The previous token or this token might contain the percentage */
-                                gchar *pct_str = parts[j];
-                                if (strstr (pct_str, "%")) {
-                                    info->percent_done = g_ascii_strtod (pct_str, NULL);
-                                } else if (j > 0) {
-                                    pct_str = parts[j - 1];
-                                    /* Remove trailing % if present */
-                                    gchar *pct_end = strchr (pct_str, '%');
-                                    if (pct_end)
-                                        *pct_end = '\0';
-                                    info->percent_done = g_ascii_strtod (pct_str, NULL);
-                                }
-                                break;
-                            }
-                        }
-                        g_strfreev (parts);
-                        g_free (stripped_l);
-                    }
-                    break;
-                }
-            }
-
-            /* Look for errors in subsequent lines */
-            for (gchar **lp = line_p + 1; *lp; lp++) {
-                if (strstr (*lp, "errors")) {
-                    gchar *stripped_l = g_strstrip (g_strdup (*lp));
-                    gchar **parts = g_regex_split_simple ("\\s+", stripped_l, 0, 0);
-                    guint nparts = g_strv_length (parts);
-                    for (guint j = 0; j + 1 < nparts; j++) {
-                        if (g_strcmp0 (parts[j + 1], "errors") == 0) {
-                            info->errors = g_ascii_strtoull (parts[j], NULL, 10);
-                            break;
-                        }
-                    }
-                    g_strfreev (parts);
-                    g_free (stripped_l);
-                    break;
-                }
-            }
-        }
+        info->start_time = parse_scan_timestamp (scan_line, "since ");
+        parse_scan_progress (info, next_line, line_p);
     } else if (strstr (scan_line, "repaired")) {
         info->state = BD_ZFS_SCRUB_STATE_FINISHED;
         info->percent_done = 100.0;
-
-        /* Try to parse "on <timestamp>" for end_time */
-        {
-            const gchar *on = strstr (scan_line, " on ");
-            if (on) {
-                on += 4; /* skip " on " */
-                info->end_time = g_strdup (on);
-            }
-        }
-
-        /* Try to parse errors from the scan line itself: "with N errors" */
-        {
-            const gchar *with_err = strstr (scan_line, "with ");
-            if (with_err) {
-                with_err += 5; /* skip "with " */
-                info->errors = g_ascii_strtoull (with_err, NULL, 10);
-            }
-        }
+        info->end_time = parse_scan_timestamp (scan_line, " on ");
+        info->errors = parse_scan_error_count (scan_line);
     } else if (strstr (scan_line, "canceled")) {
         info->state = BD_ZFS_SCRUB_STATE_CANCELED;
-
-        /* Try to parse "on <timestamp>" */
-        {
-            const gchar *on = strstr (scan_line, " on ");
-            if (on) {
-                on += 4;
-                info->end_time = g_strdup (on);
-            }
-        }
+        info->end_time = parse_scan_timestamp (scan_line, " on ");
     } else if (strstr (scan_line, "paused")) {
         info->state = BD_ZFS_SCRUB_STATE_PAUSED;
-
-        /* Try to parse "since <timestamp>" */
-        {
-            const gchar *since = strstr (scan_line, "since ");
-            if (since) {
-                since += 6;
-                info->start_time = g_strdup (since);
-            }
-        }
+        info->start_time = parse_scan_timestamp (scan_line, "since ");
     } else if (strstr (scan_line, "none requested")) {
         info->state = BD_ZFS_SCRUB_STATE_NONE;
     }
@@ -2522,7 +2544,6 @@ gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GEr
     guint num_args = 0;
     guint next_arg = 0;
     gboolean success = FALSE;
-    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Dataset name", error))
         return FALSE;
@@ -2530,14 +2551,7 @@ gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GEr
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                num_extra++;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                num_extra++;
-        }
-    }
+    num_extra = count_extra_args (extra);
 
     /* zfs create [extras...] -- <name> NULL */
     num_args = 4 + num_extra + 1;
@@ -2545,14 +2559,7 @@ gboolean bd_zfs_dataset_create (const gchar *name, const BDExtraArg **extra, GEr
 
     argv[next_arg++] = "zfs";
     argv[next_arg++] = "create";
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                argv[next_arg++] = (*extra_p)->opt;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                argv[next_arg++] = (*extra_p)->val;
-        }
-    }
+    append_extra_args (argv, &next_arg, extra);
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
@@ -2823,7 +2830,6 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
     guint num_args = 0;
     guint next_arg = 0;
     gboolean success;
-    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Dataset name", error))
         return FALSE;
@@ -2844,14 +2850,7 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                num_extra++;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                num_extra++;
-        }
-    }
+    num_extra = count_extra_args (extra);
 
     /* zfs mount [-o mountpoint=X] [extras...] -- <name> NULL */
     num_args = 4 + (mountpoint ? 2 : 0) + num_extra + 1;
@@ -2864,14 +2863,7 @@ gboolean bd_zfs_dataset_mount (const gchar *name, const gchar *mountpoint, const
         argv[next_arg++] = "-o";
         argv[next_arg++] = mp_opt;
     }
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                argv[next_arg++] = (*extra_p)->opt;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                argv[next_arg++] = (*extra_p)->val;
-        }
-    }
+    append_extra_args (argv, &next_arg, extra);
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
@@ -3139,7 +3131,6 @@ gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
     guint num_args = 0;
     guint next_arg = 0;
     gboolean success = FALSE;
-    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Snapshot name", error))
         return FALSE;
@@ -3147,14 +3138,7 @@ gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                num_extra++;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                num_extra++;
-        }
-    }
+    num_extra = count_extra_args (extra);
 
     /* zfs snapshot [-r] [extras...] -- <name> NULL */
     num_args = 4 + (recursive ? 1 : 0) + num_extra + 1;
@@ -3164,14 +3148,7 @@ gboolean bd_zfs_snapshot_create (const gchar *name, gboolean recursive,
     argv[next_arg++] = "snapshot";
     if (recursive)
         argv[next_arg++] = "-r";
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                argv[next_arg++] = (*extra_p)->opt;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                argv[next_arg++] = (*extra_p)->val;
-        }
-    }
+    append_extra_args (argv, &next_arg, extra);
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;
@@ -3344,7 +3321,7 @@ gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
     guint num_args = 0;
     guint next_arg = 0;
     gboolean success = FALSE;
-    const BDExtraArg **extra_p = NULL;
+
     gchar *effective_clone = NULL;
 
     if (!validate_name_not_option (snapshot, "Snapshot name", error))
@@ -3379,14 +3356,7 @@ gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
         }
     }
 
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                num_extra++;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                num_extra++;
-        }
-    }
+    num_extra = count_extra_args (extra);
 
     /* zfs clone [extras...] -- <snapshot> <clone_name> NULL */
     num_args = 5 + num_extra + 1;
@@ -3394,14 +3364,7 @@ gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
 
     argv[next_arg++] = "zfs";
     argv[next_arg++] = "clone";
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                argv[next_arg++] = (*extra_p)->opt;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                argv[next_arg++] = (*extra_p)->val;
-        }
-    }
+    append_extra_args (argv, &next_arg, extra);
     argv[next_arg++] = "--";
     argv[next_arg++] = snapshot;
     argv[next_arg++] = effective_clone ? effective_clone : clone_name;
@@ -3648,8 +3611,10 @@ gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error) {
  *
  * Changes the encryption key or key location for a ZFS dataset. If
  * @new_key_location is %NULL, the ``-i`` flag is used to inherit the
- * key from the parent dataset. If @new_key_location starts with "file://",
- * it is passed as the new key location via ``-l``.
+ * key from the parent dataset. If @new_key_location starts with "file://"
+ * or "pkcs11:", it is passed as the new key location.  Otherwise the value
+ * is treated as a passphrase and piped to ``zfs change-key`` via stdin
+ * using ``-o keylocation=prompt``.
  *
  * Returns: whether the key was successfully changed or not
  *
@@ -3659,19 +3624,6 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
                                         const BDExtraArg **extra, GError **error) {
     if (!validate_name_not_option (dataset, "Dataset name", error))
         return FALSE;
-
-    if (new_key_location != NULL && *new_key_location != '\0') {
-        if (*new_key_location == '-') {
-            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
-                         "New key location cannot start with '-'");
-            return FALSE;
-        }
-        if (strchr (new_key_location, ',')) {
-            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
-                         "New key location cannot contain commas: %s", new_key_location);
-            return FALSE;
-        }
-    }
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -3686,17 +3638,9 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
         guint num_extra = 0;
         guint num_args = 0;
         guint next_arg = 0;
-        const BDExtraArg **extra_p = NULL;
         gboolean ret;
 
-        if (extra) {
-            for (extra_p = extra; *extra_p; extra_p++) {
-                if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                    num_extra++;
-                if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                    num_extra++;
-            }
-        }
+        num_extra = count_extra_args (extra);
 
         /* zfs change-key -i [extras...] -- <dataset> NULL */
         num_args = 5 + num_extra + 1;
@@ -3705,14 +3649,7 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
         argv[next_arg++] = "zfs";
         argv[next_arg++] = "change-key";
         argv[next_arg++] = "-i";
-        if (extra) {
-            for (extra_p = extra; *extra_p; extra_p++) {
-                if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                    argv[next_arg++] = (*extra_p)->opt;
-                if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                    argv[next_arg++] = (*extra_p)->val;
-            }
-        }
+        append_extra_args (argv, &next_arg, extra);
         argv[next_arg++] = "--";
         argv[next_arg++] = dataset;
         argv[next_arg] = NULL;
@@ -3720,24 +3657,24 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
         ret = bd_utils_exec_and_report_error (argv, NULL, error);
         g_free (argv);
         return ret;
-    } else {
+    } else if (g_str_has_prefix (new_key_location, "file://") ||
+               g_str_has_prefix (new_key_location, "pkcs11:")) {
+        /* Validate URI: reject values that could confuse the command line */
+        if (strchr (new_key_location, ',')) {
+            g_set_error (error, BD_ZFS_ERROR, BD_ZFS_ERROR_FAIL,
+                         "Key location URI cannot contain commas: %s", new_key_location);
+            return FALSE;
+        }
+
         /* Set new key location via -o keylocation=<value> */
         gchar *opt = g_strdup_printf ("keylocation=%s", new_key_location);
         const gchar **argv = NULL;
         guint num_extra = 0;
         guint num_args = 0;
         guint next_arg = 0;
-        const BDExtraArg **extra_p = NULL;
         gboolean ret;
 
-        if (extra) {
-            for (extra_p = extra; *extra_p; extra_p++) {
-                if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                    num_extra++;
-                if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                    num_extra++;
-            }
-        }
+        num_extra = count_extra_args (extra);
 
         /* zfs change-key -o keylocation=<value> [extras...] -- <dataset> NULL */
         num_args = 6 + num_extra + 1;
@@ -3747,20 +3684,39 @@ gboolean bd_zfs_encryption_change_key (const gchar *dataset, const gchar *new_ke
         argv[next_arg++] = "change-key";
         argv[next_arg++] = "-o";
         argv[next_arg++] = opt;
-        if (extra) {
-            for (extra_p = extra; *extra_p; extra_p++) {
-                if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                    argv[next_arg++] = (*extra_p)->opt;
-                if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                    argv[next_arg++] = (*extra_p)->val;
-            }
-        }
+        append_extra_args (argv, &next_arg, extra);
         argv[next_arg++] = "--";
         argv[next_arg++] = dataset;
         argv[next_arg] = NULL;
 
         ret = bd_utils_exec_and_report_error (argv, NULL, error);
         g_free (opt);
+        g_free (argv);
+        return ret;
+    } else {
+        /* Passphrase string — pipe via stdin with -o keylocation=prompt */
+        const gchar **argv = NULL;
+        guint num_extra = 0;
+        guint num_args = 0;
+        guint next_arg = 0;
+        gboolean ret;
+
+        num_extra = count_extra_args (extra);
+
+        /* zfs change-key -o keylocation=prompt [extras...] -- <dataset> NULL */
+        num_args = 6 + num_extra + 1;
+        argv = g_new0 (const gchar*, num_args);
+
+        argv[next_arg++] = "zfs";
+        argv[next_arg++] = "change-key";
+        argv[next_arg++] = "-o";
+        argv[next_arg++] = "keylocation=prompt";
+        append_extra_args (argv, &next_arg, extra);
+        argv[next_arg++] = "--";
+        argv[next_arg++] = dataset;
+        argv[next_arg] = NULL;
+
+        ret = bd_utils_exec_with_input (argv, new_key_location, NULL, error);
         g_free (argv);
         return ret;
     }
@@ -3838,7 +3794,6 @@ gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, c
     guint next_arg = 0;
     gchar *size_str = NULL;
     gboolean success = FALSE;
-    const BDExtraArg **extra_p = NULL;
 
     if (!validate_name_not_option (name, "Zvol name", error))
         return FALSE;
@@ -3846,14 +3801,7 @@ gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, c
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                num_extra++;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                num_extra++;
-        }
-    }
+    num_extra = count_extra_args (extra);
 
     /* zfs create -V <size> [-s] [extras...] -- <name> NULL */
     num_args = 6 + (sparse ? 1 : 0) + num_extra + 1;
@@ -3867,14 +3815,7 @@ gboolean bd_zfs_zvol_create (const gchar *name, guint64 size, gboolean sparse, c
     argv[next_arg++] = size_str;
     if (sparse)
         argv[next_arg++] = "-s";
-    if (extra) {
-        for (extra_p = extra; *extra_p; extra_p++) {
-            if ((*extra_p)->opt && (g_strcmp0 ((*extra_p)->opt, "") != 0))
-                argv[next_arg++] = (*extra_p)->opt;
-            if ((*extra_p)->val && (g_strcmp0 ((*extra_p)->val, "") != 0))
-                argv[next_arg++] = (*extra_p)->val;
-        }
-    }
+    append_extra_args (argv, &next_arg, extra);
     argv[next_arg++] = "--";
     argv[next_arg++] = name;
     argv[next_arg] = NULL;

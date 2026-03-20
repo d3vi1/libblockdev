@@ -1295,7 +1295,11 @@ gboolean bd_zfs_encryption_unload_key (const gchar *dataset, GError **error);
  * @extra: (nullable) (array zero-terminated=1): extra options for the key change operation
  * @error: (out) (optional): place to store error (if any)
  *
- * Changes the encryption key or key location for a ZFS dataset. If @new_key_location is %NULL, the key location is inherited from the parent dataset. If @new_key_location starts with "file://", it is passed as the new key location.
+ * Changes the encryption key or key location for a ZFS dataset. If
+ * @new_key_location is %NULL, the key is inherited from the parent dataset.
+ * If @new_key_location starts with "file://" or "pkcs11:", it is set as the
+ * new key location.  Otherwise the value is treated as a passphrase and piped
+ * to ``zfs change-key`` via stdin using ``-o keylocation=prompt``.
  *
  * Returns: whether the key was successfully changed or not
  *
@@ -1467,8 +1471,9 @@ const gchar* bd_zfs_get_zfs_version (GError **error);
  *
  * Validates that @name is a valid ZFS pool name per OpenZFS naming rules:
  * must begin with a letter, contain only alphanumerics/underscore/hyphen/period/colon,
- * must not be a reserved vdev type name, must not begin with 'c' followed by a digit,
- * and must not exceed 255 characters.
+ * must not conflict with a reserved vdev type name (prefix match for
+ * mirror/raidz/draid/spare, exact match for log), and must not exceed 239
+ * characters.
  *
  * Returns: %TRUE if valid, %FALSE on error with @error set
  *

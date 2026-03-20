@@ -36,6 +36,8 @@ Following storage technologies are supported by libblockdev
  - NVDIMM namespaces (deprecated)
  - NVMe
  - SMART
+ - ZFS
+   - pools, datasets, snapshots, properties
 
 #### Architecture
 
