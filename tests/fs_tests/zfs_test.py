@@ -303,6 +303,43 @@ class ZfsTestCheckLabel(ZfsNoDevTestCase):
             BlockDev.fs_zfs_check_label(name)
 
 
+class ZfsTestCheckLabelPoolNameInjection(ZfsNoDevTestCase):
+    """Tests that bd_fs_zfs_check_label() catches names that a malicious
+    on-disk ZFS label could carry.  resolve_pool_name_from_device() now
+    validates the extracted pool name through check_label before passing
+    it to zpool(8)."""
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_rejects_option_injection(self):
+        """A pool name starting with '--' must be rejected"""
+        with self.assertRaisesRegex(GLib.GError, "must begin with a letter"):
+            BlockDev.fs_zfs_check_label("--help")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_rejects_dash_o(self):
+        """A pool name like '-o' must be rejected"""
+        with self.assertRaisesRegex(GLib.GError, "must begin with a letter"):
+            BlockDev.fs_zfs_check_label("-o")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_rejects_newline(self):
+        """A pool name containing a newline must be rejected"""
+        with self.assertRaisesRegex(GLib.GError, "contains invalid character"):
+            BlockDev.fs_zfs_check_label("pool\nname")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_rejects_semicolon(self):
+        """A pool name containing ';' (shell metachar) must be rejected"""
+        with self.assertRaisesRegex(GLib.GError, "contains invalid character"):
+            BlockDev.fs_zfs_check_label("pool;rm")
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_rejects_backtick(self):
+        """A pool name containing backtick (command substitution) must be rejected"""
+        with self.assertRaisesRegex(GLib.GError, "contains invalid character"):
+            BlockDev.fs_zfs_check_label("pool`id`")
+
+
 class ZfsTestGetInfoNoFallback(ZfsNoDevTestCase):
 
     def test_get_info_fails_on_nonexistent_device(self):

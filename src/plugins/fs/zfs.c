@@ -175,6 +175,17 @@ resolve_pool_name_from_device (const gchar *device, GError **error) {
         return NULL;
     }
 
+    /* Validate the extracted pool name using the same canonical rules as
+     * bd_fs_zfs_check_label().  A corrupted or adversarial on-disk label
+     * could carry a crafted pool name that injects CLI options. */
+    if (!bd_fs_zfs_check_label (pool_name, error)) {
+        g_prefix_error (error,
+                        "Pool name from device '%s' failed validation: ",
+                        device);
+        g_free (pool_name);
+        return NULL;
+    }
+
     return pool_name;
 }
 
@@ -322,7 +333,7 @@ BDFSZfsInfo* bd_fs_zfs_get_info (const gchar *device, GError **error) {
         return NULL;
 
     /* Query the specific pool */
-    const gchar *argv[] = {"zpool", "list", "-H", "-p", "-o", "name,guid,size,free", pool_name, NULL};
+    const gchar *argv[] = {"zpool", "list", "-H", "-p", "-o", "name,guid,size,free", "--", pool_name, NULL};
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
     if (!success) {
         g_free (output);
