@@ -1072,6 +1072,55 @@ class ZfsExtraArgInsertionTestCase(ZfsPluginTest):
         self.assertNotIn("-- testpool/ds@snap1 testpool/clone1 -o", cmd)
 
     @tag_test(TestTags.NOSTORAGE)
+    def test_snapshot_clone_bare_name_normalized(self):
+        """snapshot_clone must prepend pool name when clone_name has no '/'"""
+        self._skip_unless_zfs_tools()
+        try:
+            BlockDev.zfs_snapshot_clone("testpool/ds@snap1", "myclone", None)
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-- testpool/ds@snap1 testpool/myclone", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_snapshot_clone_bare_name_pool_level_snapshot(self):
+        """snapshot_clone must prepend pool name from pool-level snapshot (pool@snap)"""
+        self._skip_unless_zfs_tools()
+        try:
+            BlockDev.zfs_snapshot_clone("testpool@snap1", "myclone", None)
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-- testpool@snap1 testpool/myclone", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_snapshot_clone_qualified_name_unchanged(self):
+        """snapshot_clone must not modify clone_name that already contains '/'"""
+        self._skip_unless_zfs_tools()
+        try:
+            BlockDev.zfs_snapshot_clone("testpool/ds@snap1", "otherpool/myclone", None)
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-- testpool/ds@snap1 otherpool/myclone", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_snapshot_clone_bare_name_with_extras(self):
+        """snapshot_clone must normalize bare name and still place extras before '--'"""
+        self._skip_unless_zfs_tools()
+        ea = BlockDev.ExtraArg.new("-o", "mountpoint=/mnt/clone")
+        try:
+            BlockDev.zfs_snapshot_clone("testpool/ds@snap1", "myclone", [ea])
+        except GLib.GError:
+            pass
+        cmd = self._get_running_cmd()
+        self.assertIsNotNone(cmd)
+        self.assertIn("-o mountpoint=/mnt/clone -- testpool/ds@snap1 testpool/myclone", cmd)
+
+    @tag_test(TestTags.NOSTORAGE)
     def test_zvol_create_extras_before_separator(self):
         """zvol_create must place extras before '--' and positional args"""
         self._skip_unless_zfs_tools()

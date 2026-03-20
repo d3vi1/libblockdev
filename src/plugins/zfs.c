@@ -3345,6 +3345,7 @@ gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
     guint next_arg = 0;
     gboolean success = FALSE;
     const BDExtraArg **extra_p = NULL;
+    gchar *effective_clone = NULL;
 
     if (!validate_name_not_option (snapshot, "Snapshot name", error))
         return FALSE;
@@ -3354,6 +3355,29 @@ gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
 
     if (!check_deps (&avail_deps, DEPS_ZFS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
+
+    /* Bare-name normalization: if clone_name contains no '/', prepend the
+     * pool name extracted from the snapshot name (everything before the
+     * first '/').  This matches the documented behaviour in the API spec. */
+    if (strchr (clone_name, '/') == NULL) {
+        const gchar *slash = strchr (snapshot, '/');
+        if (slash) {
+            gchar *pool = g_strndup (snapshot, slash - snapshot);
+            effective_clone = g_strdup_printf ("%s/%s", pool, clone_name);
+            g_free (pool);
+        } else {
+            /* snapshot is pool-level (pool@snap) — use pool prefix directly */
+            const gchar *at = strchr (snapshot, '@');
+            if (at) {
+                gchar *pool = g_strndup (snapshot, at - snapshot);
+                effective_clone = g_strdup_printf ("%s/%s", pool, clone_name);
+                g_free (pool);
+            } else {
+                /* Malformed snapshot name — fall through and let zfs(8) reject it */
+                effective_clone = g_strdup (clone_name);
+            }
+        }
+    }
 
     if (extra) {
         for (extra_p = extra; *extra_p; extra_p++) {
@@ -3380,11 +3404,12 @@ gboolean bd_zfs_snapshot_clone (const gchar *snapshot, const gchar *clone_name,
     }
     argv[next_arg++] = "--";
     argv[next_arg++] = snapshot;
-    argv[next_arg++] = clone_name;
+    argv[next_arg++] = effective_clone ? effective_clone : clone_name;
     argv[next_arg] = NULL;
 
     success = bd_utils_exec_and_report_error (argv, NULL, error);
     g_free (argv);
+    g_free (effective_clone);
     return success;
 }
 
